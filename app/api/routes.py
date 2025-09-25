@@ -9,12 +9,15 @@ import re
 from croniter import croniter
 from urllib.parse import urlparse
 import time
+import copy
 
 from app.services.cloudflare_speed_test import CloudflareSpeedTestService
 from app.services.hosts_manager import HostsManager
 from app.services.scheduler import SchedulerService
 from app.services.torrent_clients import TorrentClientManager
+from datetime import datetime
 from app.models import Tracker, HostsSource, CloudflareConfig, TorrentClientConfig, BatchAddDomainsRequest, User, AuthConfig
+from app.utils import notify as notify_module
 
 # 从认证模块导入密码处理函数和依赖项
 from app.auth import get_password_hash, verify_password, get_current_user
@@ -25,6 +28,82 @@ DEFAULT_CLOUDFLARE_IP = "104.16.91.215"  # 全局默认Cloudflare IP
 
 # 获取日志记录器
 logger = logging.getLogger(__name__)
+# 工具函数：将通知配置展开并按每个启用渠道发送
+def _send_task_notify(title: str, content: str):
+    try:
+        # 1) 根据任务类型美化标题（添加emoji）
+        title_map = {
+            "IP优选与Hosts更新": "🚀 IP优选与Hosts更新",
+            "仅更新Hosts": "🛠️ 仅更新Hosts",
+            "清空并更新Hosts": "🧹 清空并更新Hosts",
+        }
+        pretty_title = title_map.get(title, f"📣 {title}")
+
+        # 2) 根据内容判断成功/失败并加emoji
+        text = str(content or "")
+        success_markers = ["完成", "success", "已更新", "已完成", "成功"]
+        failed_markers = ["失败", "error", "异常"]
+        status_emoji = "ℹ️"
+        if any(m in text for m in success_markers):
+            status_emoji = "✅"
+        if any(m in text for m in failed_markers):
+            status_emoji = "❌"
+
+        # 3) 统一美化内容：状态 + 原始信息 + 时间
+        pretty_content = (
+            f"{status_emoji} {text}\n\n"
+            f"🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+
+        cfg = get_config() or {}
+        notify_cfg = copy.deepcopy(cfg.get("notify", {}))
+        channels = notify_cfg.get("channels", {}) or {}
+
+        def flatten_channel(ch_conf: Dict[str, Any]) -> Dict[str, Any]:
+            flat: Dict[str, Any] = {}
+            for k, v in ch_conf.items():
+                if k in ("name", "type", "enable"):
+                    continue
+                flat[k] = v
+            # 一言策略：优先渠道内配置，否则用全局
+            if "HITOKOTO" in ch_conf:
+                val = ch_conf.get("HITOKOTO")
+                if isinstance(val, bool):
+                    flat["HITOKOTO"] = "true" if val else "false"
+                else:
+                    flat["HITOKOTO"] = val
+            else:
+                global_hitokoto = notify_cfg.get("hitokoto", True)
+                flat["HITOKOTO"] = "true" if bool(global_hitokoto) else "false"
+            return flat
+
+        # 收集有效渠道
+        payloads: list[Dict[str, Any]] = []
+        if isinstance(channels, dict):
+            for _, ch_conf in channels.items():
+                if isinstance(ch_conf, dict) and ch_conf.get("enable"):
+                    payloads.append(flatten_channel(ch_conf))
+
+        minimal_keys_sets = [
+            ("WEBHOOK_URL", "WEBHOOK_METHOD"),
+            ("QYWX_KEY",),
+            ("TG_BOT_TOKEN", "TG_USER_ID"),
+            ("SMTP_SERVER", "SMTP_EMAIL", "SMTP_PASSWORD"),
+            ("BARK_PUSH",),
+            ("WXPUSHER_APP_TOKEN",),
+            ("GOTIFY_URL", "GOTIFY_TOKEN"),
+        ]
+        valid = []
+        for flat in payloads:
+            for keys in minimal_keys_sets:
+                if all(flat.get(k) for k in keys):
+                    valid.append(flat)
+                    break
+        for flat in valid:
+            notify_module.send(pretty_title, pretty_content, **flat)
+    except Exception as e:
+        logger.error(f"发送任务结果通知失败: {e}", exc_info=True)
+
 
 router = APIRouter()
 
@@ -74,7 +153,7 @@ async def update_config(
 
 
         # 保存配置
-        with open(CONFIG_PATH, 'w') as f:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
         
         # 更新服务配置
@@ -156,7 +235,7 @@ async def update_auth_config(
     if config_changed:
         current_config["auth"] = auth_settings
         try:
-            with open(CONFIG_PATH, 'w') as f:
+            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 yaml.dump(current_config, f, default_flow_style=False, allow_unicode=True)
             
             # 重新加载全局配置，确保认证配置变更立即生效
@@ -199,7 +278,11 @@ async def run_cloudflare_test(
         # 创建组合任务
         def combined_task():
             logger.info("手动执行组合任务：优选IP + 更新tracker + 更新hosts（严格串行）")
-            hosts_manager.run_cfst_and_update_hosts()
+            ok = hosts_manager.run_cfst_and_update_hosts()
+            status = hosts_manager.get_task_status() if hasattr(hosts_manager, 'get_task_status') else {}
+            msg = status.get('message') if isinstance(status, dict) else ("执行完成" if ok else "执行失败")
+            logger.info(f"[任务通知] IP优选与Hosts更新 -> {msg}")
+            _send_task_notify("IP优选与Hosts更新", msg)
         # 在后台运行，避免阻塞API响应
         background_tasks.add_task(combined_task)
         return {"message": "IP优选与Hosts更新任务已启动（严格串行）"}
@@ -271,37 +354,38 @@ async def get_task_status(
 # 获取日志
 @router.get("/logs")
 async def get_logs(lines: int = 1000):
-    """获取最近的日志，返回带换行的字符串，便于前端显示"""
+    """获取最近的日志，统一按UTF-8读取并返回字符串，避免分块解码导致的乱码。"""
+    log_file = "logs/app.log"
     try:
-        log_file = "logs/app.log"
         if not os.path.exists(log_file):
             return {"logs": ""}
-        with open(log_file, 'rb') as f:
-            f.seek(0, 2)
-            size = f.tell()
-            if size == 0:
-                return {"logs": ""}
-            chunk_size = 4096
-            pos = max(0, size - chunk_size * 10)
-            f.seek(pos)
-            content = f.read().decode('utf-8', errors='replace')
-            logs = content.splitlines()
-            while len(logs) < lines and pos > 0:
-                pos = max(0, pos - chunk_size)
-                f.seek(pos)
-                content = f.read(chunk_size).decode('utf-8', errors='replace')
-                logs = content.splitlines() + logs
-            # 返回带换行的字符串
-            return {"logs": "\n".join(logs[-lines:])}
+
+        # 使用 UTF-8 严格解码，遇到异常字符以替换符显示，避免抛错
+        from collections import deque
+        dq = deque(maxlen=max(10, lines))
+        with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
+            for line in f:
+                dq.append(line.rstrip('\n'))
+        return {"logs": "\n".join(list(dq)[-lines:])}
     except Exception as e:
         logger.error(f"获取日志失败: {str(e)}")
-        try:
-            with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
-                logs = f.readlines()
-                return {"logs": "".join(logs[-lines:])}
-        except Exception as e2:
-            logger.error(f"备用方式读取日志也失败: {str(e2)}")
-            return {"logs": "日志读取失败，请检查日志文件权限和编码"}
+        return {"logs": "日志读取失败，请检查日志文件权限和编码"}
+
+@router.post("/logs/clear")
+async def clear_logs():
+    """清空日志文件内容"""
+    try:
+        log_file = "logs/app.log"
+        # 确保目录存在
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        # 以写模式截断文件
+        with open(log_file, 'w', encoding='utf-8') as f:
+            f.write("")
+        logger.info("日志文件已被清空")
+        return {"success": True, "message": "日志已清空"}
+    except Exception as e:
+        logger.error(f"清空日志失败: {str(e)}")
+        return {"success": False, "message": f"清空日志失败: {str(e)}"}
 
 # ===== Cloudflare白名单管理API =====
 
@@ -317,7 +401,7 @@ async def add_cloudflare_domain(background_tasks: BackgroundTasks, domain: str =
     domains = set(config.get("cloudflare_domains", []))
     domains.add(domain.strip().lower())
     config["cloudflare_domains"] = list(domains)
-    with open(CONFIG_PATH, 'w') as f:
+    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
     hosts_manager = get_hosts_manager()
     hosts_manager.update_config(config)
@@ -336,7 +420,7 @@ async def delete_cloudflare_domain(background_tasks: BackgroundTasks, domain: st
     domains = set(config.get("cloudflare_domains", []))
     domains.discard(domain.strip().lower())
     config["cloudflare_domains"] = list(domains)
-    with open(CONFIG_PATH, 'w') as f:
+    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
     hosts_manager = get_hosts_manager()
     hosts_manager.update_config(config)
@@ -386,7 +470,7 @@ async def add_tracker(
             domains = set(config.get("cloudflare_domains", []))
             domains.add(domain.strip().lower())
             config["cloudflare_domains"] = list(domains)
-        with open(CONFIG_PATH, 'w') as f:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
         hosts_manager.update_config(config)
         # 统一异步触发hosts更新，避免接口阻塞
@@ -422,7 +506,7 @@ async def delete_tracker(
         hosts_manager.remove_tracker_domain(domain)
         
         # 保存配置
-        with open(CONFIG_PATH, 'w') as f:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
         
         # 更新hosts_manager的配置
@@ -470,7 +554,7 @@ async def add_hosts_source(
             if existing["url"] == source["url"]:
                 raise HTTPException(status_code=400, detail="hosts源已存在")
         config["hosts_sources"].append(source)
-        with open(CONFIG_PATH, 'w') as f:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
         
         # 更新hosts_manager的配置
@@ -505,7 +589,7 @@ async def delete_hosts_source(
         if "hosts_sources" not in config:
             raise HTTPException(status_code=404, detail="hosts源不存在")
         config["hosts_sources"] = [s for s in config["hosts_sources"] if s["url"] != url]
-        with open(CONFIG_PATH, 'w') as f:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
             
         # 更新hosts_manager的配置
@@ -537,7 +621,13 @@ async def update_hosts(
     """手动更新hosts"""
     try:
         # 在后台运行，避免阻塞API响应
-        background_tasks.add_task(hosts_manager.update_hosts)
+        def task():
+            ok = hosts_manager.update_hosts()
+            status = hosts_manager.get_task_status() if hasattr(hosts_manager, 'get_task_status') else {}
+            msg = status.get('message') if isinstance(status, dict) else ("更新完成" if ok else "更新失败")
+            logger.info(f"[任务通知] 仅更新Hosts -> {msg}")
+            _send_task_notify("仅更新Hosts", msg)
+        background_tasks.add_task(task)
         return {"message": "hosts更新任务已启动"}
     except Exception as e:
         logger.error(f"更新hosts失败: {str(e)}")
@@ -636,7 +726,7 @@ async def batch_add_domains(
             added.append(domain)
             
         # 保存配置
-        with open(CONFIG_PATH, 'w') as f:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
             
         # 更新hosts_manager的配置
@@ -679,7 +769,11 @@ async def run_cfst_script(
     try:
         def combined_task():
             logger.info("严格串行执行：优选IP+更新tracker+更新hosts")
-            hosts_manager.run_cfst_and_update_hosts()
+            ok = hosts_manager.run_cfst_and_update_hosts()
+            status = hosts_manager.get_task_status() if hasattr(hosts_manager, 'get_task_status') else {}
+            msg = status.get('message') if isinstance(status, dict) else ("执行完成" if ok else "执行失败")
+            logger.info(f"[任务通知] IP优选与Hosts更新 -> {msg}")
+            _send_task_notify("IP优选与Hosts更新", msg)
         background_tasks.add_task(combined_task)
         return {"message": "IP优选与Hosts更新任务已启动（严格串行）"}
     except Exception as e:
@@ -909,6 +1003,149 @@ async def get_torrent_client_types():
         ]
     }
 
+# ===== 通知配置API =====
+
+@router.get("/notify/config")
+async def get_notify_config():
+    """获取通知配置（从文件读取最新config）"""
+    config = get_config()
+    notify_cfg = config.get("notify", {})
+    return {"success": True, "notify": notify_cfg}
+
+
+@router.post("/notify/config")
+async def save_notify_config(payload: Dict[str, Any]):
+    """保存通知配置到config.yaml，并保持其余配置不变"""
+    try:
+        config = get_config()
+        new_notify = payload.get("notify", {})
+        if not isinstance(new_notify, dict):
+            return {"success": False, "message": "无效的通知配置"}
+
+        # 更新配置
+        config["notify"] = new_notify
+
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+
+        # 尝试同步到全局config，便于前端刷新
+        try:
+            import app.main
+            app.main.config = config
+        except Exception:
+            pass
+
+        logger.info("通知配置已保存")
+        return {"success": True, "message": "通知配置已保存"}
+    except Exception as e:
+        logger.error(f"保存通知配置失败: {str(e)}")
+        return {"success": False, "message": f"保存通知配置失败: {str(e)}"}
+
+
+@router.post("/notify/test")
+async def test_notify(payload: Dict[str, Any]):
+    """测试发送通知：可携带title/content与临时覆盖的channels"""
+    try:
+        title = payload.get("title") or "通知测试"
+        content = payload.get("content") or "这是一条测试消息"
+        channels_override = payload.get("channels") or {}
+
+        # 读取配置
+        config = get_config()
+        notify_cfg = copy.deepcopy(config.get("notify", {}))
+        enable = notify_cfg.get("enable", True)
+        if not enable:
+            return {"success": False, "message": "通知功能未启用"}
+
+        # 逐渠道发送：按每个启用渠道构建独立的kwargs，并为其设置独立的HITOKOTO
+        channels = notify_cfg.get("channels", {}) or {}
+        per_channel_payloads: list[Dict[str, Any]] = []
+
+        def flatten_channel(ch_conf: Dict[str, Any]) -> Dict[str, Any]:
+            flat: Dict[str, Any] = {}
+            for k, v in ch_conf.items():
+                if k in ("name", "type", "enable"):
+                    continue
+                flat[k] = v
+            # 每渠道一言开关映射
+            if "HITOKOTO" in ch_conf:
+                val = ch_conf.get("HITOKOTO")
+                if isinstance(val, bool):
+                    flat["HITOKOTO"] = "true" if val else "false"
+                else:
+                    flat["HITOKOTO"] = val
+            else:
+                # 如果渠道内未显式设置，则回落到全局 notify.hitokoto（默认为 True）
+                global_hitokoto = notify_cfg.get("hitokoto", True)
+                flat["HITOKOTO"] = "true" if bool(global_hitokoto) else "false"
+            return flat
+
+        # 先收集已保存且启用的渠道（若没有前端嵌套覆盖，则使用；若有嵌套覆盖，仅使用覆盖）
+        use_saved_channels = True
+
+        # 应用前端临时覆盖：
+        # - 若为嵌套结构（按渠道名），则替换/追加对应渠道
+        # - 若为顶层键集合，则作为“单次临时渠道”追加一次发送
+        if isinstance(channels_override, dict) and channels_override:
+            # 只要前端携带了覆盖对象，就完全忽略已保存的其它渠道
+            use_saved_channels = False
+            contains_nested = any(isinstance(val, dict) for val in channels_override.values())
+            if contains_nested:
+                for _, ch_conf in channels_override.items():
+                    if isinstance(ch_conf, dict) and ch_conf.get("enable", True):
+                        per_channel_payloads.append(flatten_channel(ch_conf))
+            else:
+                # 顶层键集合 -> 直接作为一次独立发送
+                tmp_flat = dict(channels_override)
+                if "HITOKOTO" in tmp_flat and isinstance(tmp_flat["HITOKOTO"], bool):
+                    tmp_flat["HITOKOTO"] = "true" if tmp_flat["HITOKOTO"] else "false"
+                elif "HITOKOTO" not in tmp_flat:
+                    tmp_flat["HITOKOTO"] = "true" if bool(notify_cfg.get("hitokoto", True)) else "false"
+                per_channel_payloads.append(tmp_flat)
+
+        if use_saved_channels and isinstance(channels, dict):
+            for _, ch_conf in channels.items():
+                if isinstance(ch_conf, dict) and ch_conf.get("enable"):
+                    per_channel_payloads.append(flatten_channel(ch_conf))
+
+        # 过滤无效渠道（最小必需字段校验）
+        valid_payloads: list[Dict[str, Any]] = []
+        minimal_keys_sets = [
+            ("WEBHOOK_URL", "WEBHOOK_METHOD"),           # 自定义Webhook
+            ("QYWX_KEY",),                               # 企业微信Bot
+            ("QYWX_AM",),                                # 企业微信App
+            ("TG_BOT_TOKEN", "TG_USER_ID"),             # Telegram
+            ("SMTP_SERVER", "SMTP_EMAIL", "SMTP_PASSWORD"), # 邮件
+            ("BARK_PUSH",),                                # Bark
+            ("PUSH_KEY",),                               # Server酱
+            ("IGOT_PUSH_KEY",),                          # iGot
+            ("FSKEY",),                                  # 飞书
+            ("DD_BOT_TOKEN", "DD_BOT_SECRET"),          # 钉钉
+            ("CHAT_URL", "CHAT_TOKEN"),                 # Synology Chat
+        ]
+        for flat in per_channel_payloads:
+            for keys in minimal_keys_sets:
+                if all(flat.get(k) for k in keys):
+                    valid_payloads.append(flat)
+                    break
+
+        if not valid_payloads:
+            return {"success": False, "message": "未检测到可用的通知渠道，请检查渠道是否启用且配置完整"}
+
+        # 跳过标题列表
+        skip_titles = notify_cfg.get("skip_titles", []) or []
+        if title in skip_titles:
+            return {"success": True, "message": "标题在跳过列表中，未发送"}
+
+        # 分渠道依次发送（每次send只带该渠道相关字段，从而按渠道的HITOKOTO生效）
+        for flat in valid_payloads:
+            # 测试发送时仅使用本渠道配置
+            notify_module.send(title, content, ignore_default_config=True, **flat)
+        return {"success": True, "message": "测试通知请求已发出，请检查渠道接收情况"}
+    except Exception as e:
+        logger.error(f"测试通知发送失败: {str(e)}", exc_info=True)
+        return {"success": False, "message": f"测试通知失败: {str(e)}"}
+
 # 从下载器导入Tracker
 @router.post("/import-trackers-from-clients")
 async def import_trackers_from_clients_route(
@@ -980,7 +1217,7 @@ async def import_trackers_from_clients_route(
             
             # 只有有新的Cloudflare站点时才更新配置文件
             if new_trackers_added:
-                with open(CONFIG_PATH, 'w') as f:
+                with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                     yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
                 logger.info("已更新配置文件，添加了新的Tracker")
                 hosts_manager.update_config(config)
@@ -995,7 +1232,6 @@ async def import_trackers_from_clients_route(
                 background_tasks.add_task(hosts_manager.update_hosts)
                 
                 # 更新结果消息，区分加速和过滤站点
-                total_count = len(cf_domains) + len(non_cf_domains)
                 cf_only_message = f"成功导入 {len(cf_domains)} 个Cloudflare站点"
                 if non_cf_domains:
                     cf_only_message += f"，已过滤 {len(non_cf_domains)} 个非Cloudflare站点"
@@ -1009,7 +1245,7 @@ async def import_trackers_from_clients_route(
             
             # 添加详细的客户端结果信息
             client_summary = []
-            for client_id, client_result in result.get("client_results", {}).items():
+            for _, client_result in result.get("client_results", {}).items():
                 if client_result.get("success"):
                     client_summary.append(f"{client_result['name']}: {client_result['count']}个")
                 else:
@@ -1029,15 +1265,19 @@ async def clear_and_update_hosts(
     background_tasks: BackgroundTasks,
     hosts_manager: HostsManager = Depends(get_hosts_manager)
 ):
-    """清空系统hosts文件并重新生成hosts内容"""
+    """清理项目分区并重新生成hosts内容（保留原有系统hosts未受影响）"""
     try:
-        # 1. 清空hosts文件内容
-        hosts_path = hosts_manager._get_hosts_path()
-        with open(hosts_path, 'w') as f:
-            f.write('')
-        # 2. 后台更新hosts
-        background_tasks.add_task(hosts_manager.update_hosts)
-        return {"message": "已清空hosts文件并启动更新任务"}
+        # 1. 仅移除PT-Accelerator分区，保留原有系统hosts
+        hosts_manager.clear_project_sections()
+        # 2. 后台更新hosts并通知
+        def task():
+            ok = hosts_manager.update_hosts()
+            status = hosts_manager.get_task_status() if hasattr(hosts_manager, 'get_task_status') else {}
+            msg = status.get('message') if isinstance(status, dict) else ("更新完成" if ok else "更新失败")
+            logger.info(f"[任务通知] 清空并更新Hosts -> {msg}")
+            _send_task_notify("清空并更新Hosts", msg)
+        background_tasks.add_task(task)
+        return {"message": "已清理项目分区并启动更新任务（原有hosts内容已保留）"}
     except Exception as e:
         logger.error(f"清空并更新hosts失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"清空并更新hosts失败: {str(e)}")
@@ -1051,7 +1291,7 @@ async def clear_all_trackers(
     try:
         config = get_config()
         config["trackers"] = []
-        with open(CONFIG_PATH, 'w') as f:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
         hosts_manager.update_config(config)
         try:
@@ -1065,3 +1305,26 @@ async def clear_all_trackers(
         logger.error(f"清空所有tracker失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"清空所有tracker失败: {str(e)}")
 
+
+# 保存系统hosts内容
+@router.post("/save-hosts-content")
+async def save_hosts_content(
+    payload: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    hosts_manager: HostsManager = Depends(get_hosts_manager)
+):
+    try:
+        content = payload.get("content", "")
+        if not isinstance(content, str):
+            raise HTTPException(status_code=400, detail="无效的内容")
+        hosts_path = hosts_manager._get_hosts_path()
+        with open(hosts_path, 'w') as f:
+            f.write(content)
+        # 保存后触发一次后台更新，确保项目分区一致（非阻塞）
+        background_tasks.add_task(hosts_manager.update_hosts)
+        return {"success": True, "message": "Hosts已保存，已启动后台更新"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"保存hosts失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"保存hosts失败: {str(e)}")

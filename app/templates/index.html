@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PT-Accelerator</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <title>PT-Accelerator v{{ version }}</title>
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/bootstrap-icons.css">
     <style>
         :root {
             --primary-color: #4361ee;
@@ -292,7 +292,7 @@
     <div class="container">
         <div class="app-header d-flex justify-content-between align-items-center">
             <div>
-                <h1>PT-Accelerator</h1>
+                <h1>PT-Accelerator <span class="ms-2" style="font-size: 0.5em; padding: 0.2em 0.4em; background-color: rgba(255, 255, 255, 0.2); color: #dee2e6; border-radius: 0.25rem; font-weight: normal;">v{{ version }}</span></h1>
                 <p class="mb-0">优化您的 PT 体验</p>
             </div>
             <div>
@@ -332,8 +332,14 @@
             </li>
 
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="notify-tab" data-bs-toggle="tab" data-bs-target="#notify-settings" type="button" role="tab" aria-controls="notify-settings" aria-selected="false">
+                    <i class="bi bi-bell me-1"></i>通知设置
+                </button>
+            </li>
+
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="auth-settings-tab" data-bs-toggle="tab" data-bs-target="#auth-settings-content" type="button" role="tab" aria-controls="auth-settings-content" aria-selected="false">
-                    <i class="bi bi-shield-lock-fill"></i> 安全与认证
+                    <i class="bi bi-shield-lock"></i> 安全与认证
                 </button>
             </li>
         </ul>
@@ -431,21 +437,23 @@
             
             <!-- Tracker管理 -->
             <div class="tab-pane fade" id="trackers" role="tabpanel" aria-labelledby="trackers-tab">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="mb-0"><i class="bi bi-hdd-network me-2"></i>Tracker管理</h5>
-                    <div class="d-flex align-items-center mb-3">
-                        <button class="btn btn-outline-warning me-2 action-btn" data-bs-toggle="modal" data-bs-target="#cloudflareDomainsModal" onclick="loadCloudflareDomains()"><i class="bi bi-shield-check"></i> Cloudflare白名单</button>
-                        <button class="btn btn-success me-2 action-btn" data-bs-toggle="modal" data-bs-target="#batchAddTrackerModal">
-                            <i class="bi bi-file-earmark-plus"></i>批量添加
+                <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-3">
+                    <h5 class="mb-3 mb-md-0"><i class="bi bi-hdd-network me-2"></i>Tracker管理</h5>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <button class="btn btn-outline-warning action-btn" data-bs-toggle="modal" data-bs-target="#cloudflareDomainsModal" onclick="loadCloudflareDomains()">
+                            <i class="bi bi-shield-check"></i> Cloudflare白名单
                         </button>
-                        <button class="btn btn-danger me-2 action-btn" id="btn-clear-all-trackers">
-                            <i class="bi bi-trash"></i>清空当前tracker
+                        <button class="btn btn-success action-btn" data-bs-toggle="modal" data-bs-target="#batchAddTrackerModal">
+                            <i class="bi bi-file-earmark-plus"></i> 批量添加
                         </button>
-                        <button class="btn btn-info me-2 action-btn" id="btn-run-cfst-script">
-                            <i class="bi bi-play-circle"></i>运行IP优选
+                        <button class="btn btn-danger action-btn" id="btn-clear-all-trackers">
+                            <i class="bi bi-trash"></i> 清空当前tracker
+                        </button>
+                        <button class="btn btn-info action-btn" id="btn-run-cfst-script">
+                            <i class="bi bi-play-circle"></i> 运行IP优选
                         </button>
                         <button class="btn btn-primary action-btn" data-bs-toggle="modal" data-bs-target="#addTrackerModal">
-                            <i class="bi bi-plus-lg"></i>添加Tracker
+                            <i class="bi bi-plus-lg"></i> 添加Tracker
                         </button>
                     </div>
                 </div>
@@ -516,6 +524,9 @@
                 <div class="card mt-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-file-text me-2"></i>当前Hosts文件内容</span>
+                        <button class="btn btn-warning btn-sm action-btn text-white" id="btn-edit-hosts">
+                            <i class="bi bi-pencil-square me-1"></i>Hosts编辑
+                        </button>
                     </div>
                     <div class="card-body">
                         <pre id="current-hosts"></pre>
@@ -537,9 +548,14 @@
             <div class="tab-pane fade" id="logs-panel" role="tabpanel" aria-labelledby="logs-tab">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>系统日志</h5>
-                    <button id="refresh-logs" class="btn btn-secondary action-btn">
-                        <i class="bi bi-arrow-clockwise me-1"></i>刷新日志
-                    </button>
+                    <div class="d-flex gap-2">
+                        <button id="refresh-logs" class="btn btn-secondary action-btn">
+                            <i class="bi bi-arrow-clockwise me-1"></i>刷新日志
+                        </button>
+                        <button id="clear-logs" class="btn btn-danger action-btn">
+                            <i class="bi bi-trash me-1"></i>清空日志
+                        </button>
+                    </div>
                 </div>
                 <div class="card">
                     <div class="card-body">
@@ -548,7 +564,63 @@
                 </div>
             </div>
 
-
+            <!-- 通知设置 Tab -->
+            <div class="tab-pane fade" id="notify-settings" role="tabpanel" aria-labelledby="notify-tab">
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span>通知设置</span>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="notifyEnabled">
+                                    <label class="form-check-label ms-2" for="notifyEnabled">
+                                        启用通知
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="notifyChannelsList">
+                                    <!-- 通知渠道列表将在这里动态加载 -->
+                                </div>
+                                <div class="mt-3">
+                                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#notifyChannelModal" id="add-notify-channel-btn">
+                                        <i class="bi bi-plus-circle me-1"></i>添加通知渠道
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header">通知渠道说明</div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <h6 class="mb-1"><i class="bi bi-chat-dots me-1"></i>企业微信机器人</h6>
+                                    <p class="small text-muted mb-2">适合企业微信群通知，配置机器人 Key 即可。</p>
+                                    <h6 class="mb-1"><i class="bi bi-tablet me-1"></i>企业微信App</h6>
+                                    <p class="small text-muted">通过企业自建应用推送，需 corpid/corpsecret/touser/agentid，可选 media_id。</p>
+                                </div>
+                                <div class="mb-3">
+                                    <h6 class="mb-1"><i class="bi bi-send me-1"></i>Telegram</h6>
+                                    <p class="small text-muted">使用 Bot Token 与用户ID，支持可选代理。</p>
+                                </div>
+                                <div class="mb-3">
+                                    <h6 class="mb-1"><i class="bi bi-envelope me-1"></i>邮件 (SMTP)</h6>
+                                    <p class="small text-muted">配置服务器、邮箱与密码，支持 SSL 与端口。</p>
+                                </div>
+                                <div class="mb-3">
+                                    <h6 class="mb-1"><i class="bi bi-bell me-1"></i>iGot / Server酱 / 飞书 / 钉钉</h6>
+                                    <p class="small text-muted">常用聚合与办公通知渠道，分别填写对应的 Key 或 Token 即可。</p>
+                                </div>
+                                <div class="mb-0">
+                                    <h6 class="mb-1"><i class="bi bi-gear me-1"></i>自定义 Webhook</h6>
+                                    <p class="small text-muted">支持 POST/GET，自定义 Header 与 Body（含占位符 $title/$content）。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <!-- 安全与认证 Tab -->
             <div class="tab-pane fade" id="auth-settings-content" role="tabpanel" aria-labelledby="auth-settings-tab">
@@ -671,6 +743,45 @@
                     <button type="button" class="btn btn-outline-primary" id="errorRetryBtn" style="display: none;">
                         <i class="bi bi-arrow-repeat me-1"></i>重试
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 确认操作模态框 -->
+    <div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmModalLabel">确认操作</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="confirmMessage">确定要执行此操作吗？</div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="confirmOkBtn">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑Hosts模态框 -->
+    <div class="modal fade" id="editHostsModal" tabindex="-1" aria-labelledby="editHostsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editHostsModalLabel"><i class="bi bi-pencil-square me-2"></i>编辑系统 Hosts</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle me-2"></i>请谨慎操作！修改将直接写入系统 hosts 文件，保存前请确认内容无误。
+                    </div>
+                    <textarea id="edit-hosts-textarea" class="form-control" rows="20" style="font-family: Consolas, Monaco, 'Andale Mono', monospace;"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="save-hosts-btn"><i class="bi bi-save me-1"></i>保存</button>
                 </div>
             </div>
         </div>
@@ -820,11 +931,377 @@
         </div>
     </div>
     
+    <!-- 通知渠道配置模态框 -->
+    <div class="modal fade" id="notifyChannelModal" tabindex="-1" aria-labelledby="notifyChannelModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="notifyChannelModalLabel">添加通知渠道</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="notify-channel-form">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-floating mb-3">
+                                    <input type="text" class="form-control" id="channel-name" required placeholder="名称">
+                                    <label for="channel-name">渠道名称</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-floating mb-3">
+                                    <select class="form-select" id="channel-type" required>
+                                        <option value="">选择类型</option>
+                                        <option value="wecom_bot">企业微信机器人</option>
+                                        <option value="wecom_app">企业微信App</option>
+                                        <option value="telegram">Telegram</option>
+                                        <option value="igot">iGot 聚合推送</option>
+                                        <option value="dingding">钉钉机器人</option>
+                                        <option value="feishu">飞书机器人</option>
+                                        <option value="smtp">邮件</option>
+                                        <option value="bark">Bark</option>
+                                        <option value="serverj">Server酱</option>
+                                        <option value="chat">Synology Chat</option>
+                                        <option value="webhook">自定义Webhook</option>
+                                    </select>
+                                    <label for="channel-type">通知类型</label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 企业微信机器人配置 -->
+                        <div id="wecom-config" class="channel-config" style="display: none;">
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="wecom-key" placeholder="企业微信机器人Key">
+                                <label for="wecom-key">企业微信机器人Key</label>
+                            </div>
+                        </div>
+
+                        <!-- 企业微信 App 配置 -->
+                        <div id="wecom_app-config" class="channel-config" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="weapp-corpid" placeholder="企业ID (corpid)">
+                                        <label for="weapp-corpid">企业ID (corpid)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="weapp-corpsecret" placeholder="应用Secret (corpsecret)">
+                                        <label for="weapp-corpsecret">应用Secret (corpsecret)</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="weapp-touser" placeholder="接收者 (touser 或 @all)">
+                                        <label for="weapp-touser">接收者 (touser 或 @all)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="weapp-agentid" placeholder="应用AgentID (agentid)">
+                                        <label for="weapp-agentid">应用AgentID (agentid)</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="weapp-mediaid" placeholder="图文素材media_id(可选)">
+                                <label for="weapp-mediaid">图文素材 media_id (可选)</label>
+                            </div>
+                            <div class="form-text mb-2">将以上字段组合为 QYWX_AM: corpid,corpsecret,touser,agentid[,media_id]</div>
+                        </div>
+                        
+                        <!-- Telegram配置 -->
+                        <div id="telegram-config" class="channel-config" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="tg-bot-token" placeholder="Bot Token">
+                                        <label for="tg-bot-token">机器人的TOKEN</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="tg-user-id" placeholder="用户ID">
+                                        <label for="tg-user-id">机器人的ID</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="tg-api-host" placeholder="可选：Telegram API代理地址">
+                                <label for="tg-api-host">API代理地址(可选)</label>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="tg-proxy-host" placeholder="代理主机">
+                                        <label for="tg-proxy-host">代理主机(可选)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="tg-proxy-port" placeholder="代理端口">
+                                        <label for="tg-proxy-port">代理端口(可选)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="tg-proxy-auth" placeholder="代理认证">
+                                        <label for="tg-proxy-auth">代理认证(可选)</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-text mb-2">
+                                说明：默认使用官方地址 https://api.telegram.org，如需自建代理或使用代理服务器可填写相应配置。
+                            </div>
+                        </div>
+                        
+                        <!-- iGot 聚合推送配置 -->
+                        <div id="igot-config" class="channel-config" style="display: none;">
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="igot-key" placeholder="IGOT_PUSH_KEY">
+                                <label for="igot-key">IGOT_PUSH_KEY</label>
+                            </div>
+                            <div class="form-text mb-2">在 iGot 平台获取 PUSH_KEY，格式通常为一串字母数字。</div>
+                        </div>
+                        
+                        <!-- 飞书机器人配置 -->
+                        <div id="feishu-config" class="channel-config" style="display: none;">
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="feishu-key" placeholder="飞书机器人 FSKEY">
+                                <label for="feishu-key">飞书机器人 FSKEY</label>
+                            </div>
+                            <div class="form-text mb-2">在飞书群机器人的设置中获取 FSKEY。</div>
+                        </div>
+                        
+                        <!-- 钉钉机器人配置 -->
+                        <div id="dingding-config" class="channel-config" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="dd-bot-token" placeholder="DD_BOT_TOKEN">
+                                        <label for="dd-bot-token">DD_BOT_TOKEN</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="dd-bot-secret" placeholder="DD_BOT_SECRET">
+                                        <label for="dd-bot-secret">DD_BOT_SECRET</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-text mb-2">在钉钉群自定义机器人中获取 Token 与加签 Secret。</div>
+                        </div>
+                        
+                        <!-- 邮件配置 -->
+                        <div id="smtp-config" class="channel-config" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="smtp-server" placeholder="SMTP服务器(host 或 host:port)">
+                                        <label for="smtp-server">SMTP服务器(host 或 host:port)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="smtp-port" placeholder="端口(可选)">
+                                        <label for="smtp-port">端口(可选)</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="email" class="form-control" id="smtp-email" placeholder="邮箱">
+                                        <label for="smtp-email">邮箱</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="password" class="form-control" id="smtp-password" placeholder="密码/授权码">
+                                        <label for="smtp-password">密码/授权码</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="smtp-name" placeholder="发件人名称(可选)">
+                                        <label for="smtp-name">发件人名称(可选)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 d-flex align-items-center">
+                                    <div class="form-check form-switch mt-1">
+                                        <input class="form-check-input" type="checkbox" id="smtp-ssl">
+                                        <label class="form-check-label ms-2" for="smtp-ssl">启用SSL</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-text mb-2">
+                                说明：若服务器地址未包含端口且填写了端口，将自动组合为 host:port。SSL 对应配置项 SMTP_SSL。
+                            </div>
+                        </div>
+                        
+                        <!-- Bark配置 -->
+                        <div id="bark-config" class="channel-config" style="display: none;">
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="bark-url" placeholder="Bark 推送地址或设备码(BARK_PUSH)">
+                                <label for="bark-url">Bark 推送地址或设备码</label>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="bark-group" placeholder="分组(可选)">
+                                        <label for="bark-group">分组(可选)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="bark-sound" placeholder="声音(可选)">
+                                        <label for="bark-sound">声音(可选)</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="bark-icon" placeholder="图标URL(可选)">
+                                        <label for="bark-icon">图标URL(可选)</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="bark-level" placeholder="时效性(可选)">
+                                        <label for="bark-level">时效性(可选)</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="bark-jump-url" placeholder="跳转URL(可选)">
+                                <label for="bark-jump-url">跳转URL(可选)</label>
+                            </div>
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" id="bark-archive">
+                                <label class="form-check-label ms-2" for="bark-archive">存档(BARK_ARCHIVE)</label>
+                            </div>
+                        </div>
+                        
+                        <!-- Server酱配置 -->
+                        <div id="serverj-config" class="channel-config" style="display: none;">
+                            <div class="form-floating mb-3">
+                                <input type="text" class="form-control" id="serverj-push-key" placeholder="PUSH_KEY">
+                                <label for="serverj-push-key">PUSH_KEY</label>
+                            </div>
+                            <div class="form-text mb-2">
+                                说明：支持旧版与 Turbo 版，填写对应的 PUSH_KEY。
+                                    </div>
+                                </div>
+                        
+                        <!-- Synology Chat 配置 -->
+                        <div id="chat-config" class="channel-config" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="chat-url" placeholder="Chat URL">
+                                        <label for="chat-url">Chat URL</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <input type="text" class="form-control" id="chat-token" placeholder="Chat Token">
+                                        <label for="chat-token">Chat Token</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-text mb-2">
+                                说明：在群组的整合服务中创建“传入Webhook”，复制Webhook URL；Token按需填写。
+                            </div>
+                        </div>
+                        
+                        
+                        
+                        <!-- 自定义Webhook配置 -->
+                        <div id="webhook-config" class="channel-config" style="display: none;">
+                            <div class="form-floating mb-3">
+                                <input type="url" class="form-control" id="webhook-url" placeholder="Webhook URL">
+                                <label for="webhook-url">通知URL</label>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <select class="form-select" id="webhook-method">
+                                            <option value="POST">POST</option>
+                                            <option value="GET">GET</option>
+                                        </select>
+                                        <label for="webhook-method">请求方法</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-floating mb-3">
+                                        <select class="form-select" id="webhook-content-type">
+                                            <option value="application/json">application/json</option>
+                                            <option value="application/x-www-form-urlencoded">application/x-www-form-urlencoded</option>
+                                            <option value="text/plain">text/plain</option>
+                                        </select>
+                                        <label for="webhook-content-type">Content-Type</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="webhook-headers" class="form-label">请求头(可选)</label>
+                                    <textarea class="form-control" id="webhook-headers" rows="3" placeholder="Authorization: Bearer token
+X-Custom: value"></textarea>
+                                    <div class="form-text" style="white-space: normal; word-wrap: break-word;">
+                                        请求头，一行一个；例如：X-Requested-With:XMLHttpRequest
+                                </div>
+                            </div>
+                                <div class="col-md-6">
+                                <label for="webhook-body" class="form-label">请求体</label>
+                                    <textarea class="form-control" id="webhook-body" rows="3" placeholder='{"title": "$title", "text": "$content"}'></textarea>
+                                    <div class="form-text" style="white-space: normal; word-wrap: break-word;">
+                                        JSON: {"title": "$title", "text": "$content"}；表单: title=$title&text=$content
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row mt-2 mb-2">
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="channel-hitokoto">
+                                    <label class="form-check-label ms-2" for="channel-hitokoto">启用一言（随机句子）</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row mb-2">
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="channel-enable" checked>
+                                    <label class="form-check-label ms-2" for="channel-enable">启用此渠道</label>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="save-notify-channel">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <!-- Toast容器 -->
     <div class="toast-container position-fixed top-0 end-0 p-3"></div>
     
-    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/vendor/jquery.min.js"></script>
+    <script src="/static/js/vendor/bootstrap.bundle.min.js"></script>
     <script src="/static/js/main.js"></script>
     <script src="/static/js/torrent_clients.js"></script>
     <script>
@@ -1269,6 +1746,9 @@
             
             // 其他DOMContentLoaded逻辑...
             loadTrackers();
+            
+            // 初始化通知设置功能
+            initNotifySettings();
         });
     </script>
 </body>

@@ -1,0 +1,38 @@
+# 排除不需要的文件和目录
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.git/
+.gitignore
+README.md
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# 排除日志文件
+logs/
+*.log
+
+# 排除临时文件
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# 排除开发工具配置
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 排除测试文件
+tests/
+test_*
+*_test.py
+
+# 排除文档
+docs/
+*.md

@@ -1,12 +1,10 @@
 import logging
 import os
-import json
 import subprocess
 import time
 import shutil
-import glob
-from typing import Dict, List, Any, Optional
-from pathlib import Path
+import platform
+from typing import Dict, Any
 
 from app.services.hosts_manager import HostsManager
 
@@ -46,20 +44,25 @@ class CloudflareSpeedTestService:
         self._ensure_ip_files()
         
     def _find_cloudflare_st(self) -> str:
-        """查找CloudflareSpeedTest可执行文件"""
-        # 可能的路径
+        """查找CloudflareSpeedTest可执行文件，支持架构自适应"""
+        # 获取架构目录
+        arch_dir = self._get_arch_dir()
+        machine = platform.machine().lower()
+        logger.info(f"检测到架构: {machine}, 使用目录: {arch_dir}")
+        
+        # 可能的路径，按架构自适应
         possible_paths = [
             # 在当前目录查找
-            os.path.join(self.base_dir, "CloudflareST"),
-            os.path.join(self.base_dir, "CloudflareST_linux_amd64", "CloudflareST"),
+            os.path.join(self.base_dir, "cfst"),
+            os.path.join(self.base_dir, arch_dir, "cfst"),
             
             # 在系统目录查找
-            "/usr/local/bin/CloudflareST",
-            "/usr/bin/CloudflareST",
+            "/usr/local/bin/cfst",
+            "/usr/bin/cfst",
             
             # 在Docker环境中的路径
-            "/app/CloudflareST",
-            "/app/CloudflareST_linux_amd64/CloudflareST"
+            "/app/cfst",
+            f"/app/{arch_dir}/cfst"
         ]
         
         # 输出所有可能的路径方便调试
@@ -73,13 +76,22 @@ class CloudflareSpeedTestService:
                 logger.info(f"找到可执行的CloudflareSpeedTest: {path}")
                 return path
                 
-        # 如果没有找到可执行文件，使用相对路径并发出警告
-        logger.warning("未找到CloudflareSpeedTest可执行文件，将使用默认路径 ./CloudflareST_linux_amd64/CloudflareST")
-        return "./CloudflareST_linux_amd64/CloudflareST"
+        # 如果没有找到可执行文件，使用架构自适应的默认路径并发出警告
+        default_path = f"./{arch_dir}/cfst"
+        logger.warning(f"未找到CloudflareSpeedTest可执行文件，将使用默认路径 {default_path}")
+        return default_path
         
     def update_config(self, config: Dict[str, Any]):
         """更新配置"""
         self.config = config
+    
+    def _get_arch_dir(self) -> str:
+        """获取当前架构对应的目录名"""
+        machine = platform.machine().lower()
+        if machine in ("aarch64", "arm64"):
+            return "cfst_linux_arm64"
+        else:
+            return "cfst_linux_amd64"
     
     def _ensure_ip_files(self):
         """确保IP文件存在"""
@@ -104,10 +116,13 @@ class CloudflareSpeedTestService:
             except Exception as e:
                 logger.error(f"复制IP文件失败: {str(e)}")
         
-        # 在其他可能位置查找
+        # 在其他可能位置查找，支持架构自适应
         logger.info("在其他位置查找IP文件...")
+        # 获取架构目录
+        arch_dir = self._get_arch_dir()
+        
         possible_paths = [
-            os.path.join(self.base_dir, "CloudflareST_linux_amd64", "ip.txt"),
+            os.path.join(self.base_dir, arch_dir, "ip.txt"),
             "/usr/local/bin/ip.txt",
             "/usr/local/share/CloudflareST/ip.txt",
             "/app/ip.txt"
@@ -203,9 +218,12 @@ class CloudflareSpeedTestService:
             except Exception as e:
                 logger.error(f"复制IPv6文件失败: {str(e)}")
         
-        # 在其他位置查找
+        # 在其他位置查找，支持架构自适应
+        # 获取架构目录
+        arch_dir = self._get_arch_dir()
+        
         possible_paths = [
-            os.path.join(self.base_dir, "CloudflareST_linux_amd64", "ipv6.txt"),
+            os.path.join(self.base_dir, arch_dir, "ipv6.txt"),
             "/usr/local/bin/ipv6.txt",
             "/usr/local/share/CloudflareST/ipv6.txt",
             "/app/ipv6.txt"

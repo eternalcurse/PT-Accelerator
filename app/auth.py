@@ -66,8 +66,17 @@ def load_current_config():
     """加载当前配置文件"""
     if os.path.exists(CONFIG_PATH):
         try:
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f) or {}
+            # 优先UTF-8，失败回退GBK/GB18030
+            try:
+                with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f) or {}
+            except UnicodeDecodeError:
+                try:
+                    with open(CONFIG_PATH, 'r', encoding='gbk') as f:
+                        config = yaml.safe_load(f) or {}
+                except UnicodeDecodeError:
+                    with open(CONFIG_PATH, 'r', encoding='gb18030') as f:
+                        config = yaml.safe_load(f) or {}
                 # 确保配置中有auth部分
                 if "auth" not in config:
                     config["auth"] = {}

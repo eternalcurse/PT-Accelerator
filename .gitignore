@@ -108,4 +108,8 @@ logs/
 config/*.yaml
 *.csv
 .DS_Store
-.idea/ 
+.idea/
+
+# CloudflareSpeedTest generated files
+ip.txt
+nowip_hosts.txt 

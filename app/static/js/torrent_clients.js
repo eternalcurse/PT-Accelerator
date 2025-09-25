@@ -73,14 +73,14 @@ function renderTorrentClients() {
     
     // 添加客户端按钮
     const addButtonHtml = `
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="bi bi-download me-2"></i>下载器管理</h5>
-            <div>
-                <button class="btn btn-success me-2" id="btn-import-trackers">
-                    <i class="bi bi-cloud-download"></i>导入Tracker
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-3">
+            <h5 class="mb-3 mb-md-0"><i class="bi bi-download me-2"></i>下载器管理</h5>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <button class="btn btn-success d-flex align-items-center text-nowrap" id="btn-import-trackers">
+                    <i class="bi bi-cloud-download me-1"></i> 导入Tracker
                 </button>
-                <button class="btn btn-primary" id="btn-add-client">
-                    <i class="bi bi-plus-circle"></i>添加下载器
+                <button class="btn btn-primary d-flex align-items-center text-nowrap" id="btn-add-client">
+                    <i class="bi bi-plus-circle me-1"></i> 添加下载器
                 </button>
             </div>
         </div>
@@ -115,21 +115,21 @@ function createClientCard(client, index) {
     
     return `
         <div class="card mb-3" data-client-id="${client.id}">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <div>
+            <div class="card-header d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between">
+                <div class="mb-2 mb-sm-0">
                     <span class="fw-bold">${client.name}</span>
                     <span class="badge bg-secondary ms-2">${typeName}</span>
                     ${client.enable ? '<span class="badge bg-success ms-1">已启用</span>' : '<span class="badge bg-secondary ms-1">已禁用</span>'}
                 </div>
-                <div class="btn-group" role="group">
-                    <button class="btn btn-sm btn-outline-info" onclick="testClientConnection('${client.id}')">
-                        <i class="bi bi-check-circle"></i>测试
+                <div class="d-flex flex-row flex-wrap align-items-center gap-1">
+                    <button class="btn btn-sm btn-outline-info d-flex align-items-center text-nowrap" onclick="testClientConnection('${client.id}')">
+                        <i class="bi bi-check-circle me-1"></i> 测试
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" onclick="editClient('${client.id}')">
-                        <i class="bi bi-pencil"></i>编辑
+                    <button class="btn btn-sm btn-outline-primary d-flex align-items-center text-nowrap" onclick="editClient('${client.id}')">
+                        <i class="bi bi-pencil me-1"></i> 编辑
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteClient('${client.id}')">
-                        <i class="bi bi-trash"></i>删除
+                    <button class="btn btn-sm btn-outline-danger d-flex align-items-center text-nowrap" onclick="deleteClient('${client.id}')">
+                        <i class="bi bi-trash me-1"></i> 删除
                     </button>
                 </div>
             </div>
@@ -536,27 +536,32 @@ function deleteClient(clientId) {
         return;
     }
     
-    if (confirm(`确定要删除客户端 "${client.name}" 吗？`)) {
-        $.ajax({
-            url: `/api/torrent-clients/${clientId}`,
-            type: "DELETE",
-            timeout: 10000,
-            success: function(response) {
-                if (response.success) {
-                    showToast(response.message, "success", 5000);
-                    // 从本地数组中移除
-                    currentClients = currentClients.filter(c => c.id !== clientId);
-                    renderTorrentClients();
-                } else {
-                    showToast(response.message || "删除失败", "danger", 10000);
-                }
-            },
-            error: function(xhr, status, error) {
-                console.error('删除客户端失败:', status, error);
-                showToast("删除客户端失败: " + error, "danger", 10000);
+    showConfirmModal('确认删除', `确定要删除客户端 "${client.name}" 吗？`, function onConfirm() {
+        performDeleteClient(clientId);
+    });
+}
+
+// 执行删除客户端操作
+function performDeleteClient(clientId) {
+    $.ajax({
+        url: `/api/torrent-clients/${clientId}`,
+        type: "DELETE",
+        timeout: 10000,
+        success: function(response) {
+            if (response.success) {
+                showToast(response.message, "success", 5000);
+                // 从本地数组中移除
+                currentClients = currentClients.filter(c => c.id !== clientId);
+                renderTorrentClients();
+            } else {
+                showToast(response.message || "删除失败", "danger", 10000);
             }
-        });
-    }
+        },
+        error: function(xhr, status, error) {
+            console.error('删除客户端失败:', status, error);
+            showToast("删除客户端失败: " + error, "danger", 10000);
+        }
+    });
 }
 
 // 从下载器导入Tracker

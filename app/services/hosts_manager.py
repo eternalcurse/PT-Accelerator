@@ -79,6 +79,32 @@ class HostsManager:
         cf_domains_from_config = self.config.get('cloudflare_domains', [])
         self.cf_domains = set(cf_domains_from_config) if isinstance(cf_domains_from_config, list) else set([cf_domains_from_config])
         
+    def _merge_write_config(self, partial_update: Dict[str, Any]):
+        """将局部更新安全合并写回 config/config.yaml，避免覆盖其它未修改配置"""
+        config_path = os.path.join("config", "config.yaml")
+        try:
+            current = {}
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    try:
+                        current = yaml.safe_load(f) or {}
+                    except Exception:
+                        current = {}
+            # 合并：以 current 为基础，仅覆盖传入的键
+            current.update(partial_update or {})
+            with open(config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(current, f, default_flow_style=False, allow_unicode=True)
+            # 内存中的 self.config 同步为合并后的结果
+            self.config = current
+            # 同步全局 config 对象（若存在）
+            try:
+                import app.main
+                app.main.config = current
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"安全合并写配置失败: {e}")
+
     def read_system_hosts(self) -> List[str]:
         """读取系统hosts文件内容"""
         try:
@@ -285,9 +311,9 @@ class HostsManager:
                     self.config["trackers"] = filtered_trackers
                     
                     # 保存更新的配置
-                    with open("config/config.yaml", 'w') as f:
-                        yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
-                    logger.info("[历史清理] 已更新配置文件，移除了所有非Cloudflare站点")
+                    # 仅合并写 trackers，避免覆盖其它配置
+                    self._merge_write_config({"trackers": self.config.get("trackers", [])})
+                    logger.info("[历史清理] 已更新配置文件(合并写)，移除了所有非Cloudflare站点")
                     
                     # 更新全局配置
                     try:
@@ -468,10 +494,17 @@ class HostsManager:
             return False
     
     def _get_hosts_path(self) -> str:
-        """获取系统hosts文件路径"""
+        """获取hosts文件路径，优先读取配置中的自定义路径 hosts_path"""
+        try:
+            if isinstance(self.config, dict):
+                custom_path = self.config.get("hosts_path")
+                if isinstance(custom_path, str) and custom_path.strip():
+                    return custom_path
+        except Exception:
+            pass
         system = platform.system()
         if system == "Windows":
-            return r"c:\windows\system32\drivers\etc\hosts"
+            return r"c:\\windows\\system32\\drivers\\etc\\hosts"
         else:  # Linux or macOS
             return "/etc/hosts"
     
@@ -497,6 +530,27 @@ class HostsManager:
         # 写入hosts文件
         with open(hosts_path, 'w') as f:
             f.write(new_content)
+
+    def clear_project_sections(self) -> None:
+        """仅移除本项目写入的分区，保留系统原有hosts内容不变"""
+        hosts_path = self._get_hosts_path()
+        try:
+            with open(hosts_path, 'r') as f:
+                content = f.read()
+            changed = False
+            while self.start_mark in content and self.end_mark in content:
+                start_pos = content.find(self.start_mark)
+                end_pos = content.find(self.end_mark) + len(self.end_mark)
+                content = content[:start_pos] + content[end_pos:]
+                changed = True
+            if changed:
+                with open(hosts_path, 'w') as f:
+                    f.write(content.rstrip() + "\n")
+                logger.info("已清理PT-Accelerator分区，保留系统原有hosts内容")
+            else:
+                logger.info("未发现需要清理的PT-Accelerator分区")
+        except Exception as e:
+            logger.error(f"清理PT-Accelerator分区失败: {str(e)}")
     
     def add_cloudflare_ip(self, domain: str, ip: str):
         """添加Cloudflare优选IP到配置"""
@@ -524,9 +578,8 @@ class HostsManager:
                 "enable": True
             })
         
-        # 保存配置
-        with open("config/config.yaml", 'w') as f:
-            yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
+        # 保存配置（仅写入 trackers 变更）
+        self._merge_write_config({"trackers": self.config.get("trackers", [])})
             
         # 同步更新全局config对象，确保前端API获取到最新数据
         try:
@@ -553,7 +606,7 @@ class HostsManager:
                 logger.info(f"更新tracker {tracker.get('domain')} 的IP为 {ip}")
         
         # 保存配置
-        with open("config/config.yaml", 'w') as f:
+        with open("config/config.yaml", 'w', encoding='utf-8') as f:
             yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
             
         # 同步更新全局config对象，确保前端API获取到最新数据
@@ -564,13 +617,20 @@ class HostsManager:
         except Exception as e:
             logger.error(f"更新全局config对象失败: {str(e)}")
     
-    def run_cfst_and_update_hosts(self, script_path: str = "CloudflareST_linux_amd64/cfst_hosts.sh"):
+    def run_cfst_and_update_hosts(self, script_path: str = None):
         if self.task_running:
             logger.warning("已有hosts更新任务在运行，阻止Cloudflare优选任务执行，避免冲突")
             return False
         self.task_running = True
         self.task_status = {"status": "running", "message": "正在执行Cloudflare优选IP任务"}
         try:
+            # 架构自适应：未显式传入时按平台自动选择脚本
+            if not script_path:
+                machine = platform.machine().lower()
+                if machine in ("aarch64", "arm64"):
+                    script_path = "cfst_linux_arm64/cfst_hosts.sh"
+                else:
+                    script_path = "cfst_linux_amd64/cfst_hosts.sh"
             logger.info("开始执行严格串行的优选IP+更新tracker+更新hosts流程")
             best_ip = None
             if os.path.exists(script_path):
@@ -603,9 +663,9 @@ class HostsManager:
                 return False
             self.best_cloudflare_ip = best_ip
             logger.info(f"串行流程提取到最优IP: {best_ip}")
+            filtered_trackers = []  # 确保后续统计时变量已定义
             if self.config.get("trackers"):
                 original_count = len(self.config["trackers"])
-                filtered_trackers = []
                 non_cf_domains = []
                 for tracker in self.config["trackers"]:
                     if not tracker.get("domain"):
@@ -622,8 +682,8 @@ class HostsManager:
                     logger.info(f"[IP优选] 过滤了 {original_count - len(filtered_trackers)} 个非Cloudflare站点: {', '.join(non_cf_domains)}")
                 logger.info(f"已将 {len(filtered_trackers)} 个Cloudflare站点Tracker的IP更新为 {best_ip}")
             config_path = "config/config.yaml"
-            with open(config_path, 'w') as f:
-                yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
+            # 仅合并写 trackers（以及可能的 cloudflare_domains 后续有需要可一并传入）
+            self._merge_write_config({"trackers": self.config.get("trackers", [])})
             self.update_config(self.config)
             try:
                 import app.main
@@ -717,7 +777,7 @@ class HostsManager:
             # 批量处理完所有域名后，一次性生成最终hosts条目
             self.task_status = {"status": "running", "message": "正在生成最终hosts条目"}
             logger.info("生成合并后的最终hosts条目")
-            merged_entries = [f"{ip}\t{domain}" for domain, (ip, latency) in domain_ip_latency.items()]
+            merged_entries = [f"{ip}\t{domain}" for domain, (ip, _) in domain_ip_latency.items()]
             if merged_entries:
                 sections.append((self.source_start_mark % "MergedHosts", merged_entries, self.source_end_mark % ("MergedHosts", len(merged_entries))))
                 
@@ -732,7 +792,7 @@ class HostsManager:
             for line in log_lines:
                 logger.info(line)
             self._save_merged_hosts_backup(merged_dict)
-            self.task_status = {"status": "done", "message": f"Cloudflare优选完成！IP: {best_ip}，已更新 {len(filtered_trackers)} 个Tracker和 {total_entries} 条hosts记录"}
+            self.task_status = {"status": "done", "message": f"Cloudflare优选完成！IP: {best_ip}，已更新 {len(filtered_trackers) if isinstance(filtered_trackers, list) else 0} 个Tracker和 {total_entries} 条hosts记录"}
             self.task_running = False
             logger.info("已完成hosts文件更新")
             if self.pending_update:

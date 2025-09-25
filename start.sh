@@ -33,12 +33,12 @@ if [ ! -w "/etc/hosts" ]; then
 fi
 
 # 确保CloudflareST有执行权限
-if [ -f "CloudflareST_linux_amd64/CloudflareST" ]; then
-    log "设置 CloudflareST 可执行权限..."
-    chmod +x CloudflareST_linux_amd64/CloudflareST
-    chmod +x CloudflareST_linux_amd64/cfst_hosts.sh
+if [ -f "cfst_linux_amd64/cfst" ]; then
+    log "设置 cfst 可执行权限..."
+    chmod +x cfst_linux_amd64/cfst
+    chmod +x cfst_linux_amd64/cfst_hosts.sh
 else
-    log "警告: 未找到 CloudflareST 文件，IP优选功能可能不可用"
+    log "警告: 未找到 cfst 文件，IP优选功能可能不可用"
 fi
 
 # 创建nowip_hosts.txt文件（如果不存在）
@@ -46,10 +46,10 @@ if [ ! -f "nowip_hosts.txt" ]; then
     log "创建 nowip_hosts.txt 文件..."
     echo "104.16.91.215" > nowip_hosts.txt
     
-    # 检查CloudflareST_linux_amd64目录下是否也需要此文件
-    if [ -d "CloudflareST_linux_amd64" ] && [ ! -f "CloudflareST_linux_amd64/nowip_hosts.txt" ]; then
-        cp nowip_hosts.txt CloudflareST_linux_amd64/nowip_hosts.txt
-    fi
+# 检查cfst_linux_amd64目录下是否也需要此文件
+if [ -d "cfst_linux_amd64" ] && [ ! -f "cfst_linux_amd64/nowip_hosts.txt" ]; then
+    cp nowip_hosts.txt cfst_linux_amd64/nowip_hosts.txt
+fi
 fi
 
 # 启动应用

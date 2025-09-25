@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, Form, status
+from fastapi import FastAPI, Request, Depends, Form, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -18,19 +18,24 @@ from app.services.scheduler import SchedulerService
 from app.services.torrent_clients import TorrentClientManager
 from app.models import User
 from app.auth import init_session_serializer, verify_password, get_password_hash, get_current_user, create_user_session
+from version import get_version
 
-# 配置日志
+# 优先确保目录存在
+os.makedirs("logs", exist_ok=True)
+os.makedirs("config", exist_ok=True)
+
+# 配置日志（文件使用UTF-8编码，避免中文乱码）
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("logs/app.log")
+        logging.FileHandler("logs/app.log", encoding="utf-8")
     ]
 )
 logger = logging.getLogger(__name__)
 
-# 创建必要的目录
+# 创建必要的目录（已提前创建，保留以防未来调整调用顺序）
 os.makedirs("logs", exist_ok=True)
 os.makedirs("config", exist_ok=True)
 
@@ -135,8 +140,8 @@ def create_nowip_file():
         except Exception as e:
             logger.error(f"创建nowip_hosts.txt文件失败: {str(e)}")
     
-    # 检查CloudflareST_linux_amd64目录下是否也需要此文件
-    cfst_dir = "CloudflareST_linux_amd64"
+    # 检查cfst_linux_amd64目录下是否也需要此文件
+    cfst_dir = "cfst_linux_amd64"
     if os.path.exists(cfst_dir) and not os.path.exists(os.path.join(cfst_dir, "nowip_hosts.txt")):
         try:
             with open(os.path.join(cfst_dir, "nowip_hosts.txt"), "w") as f:
@@ -148,14 +153,23 @@ def create_nowip_file():
 # 加载或创建配置文件
 def load_config():
     if not os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, 'w') as f:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
             if not DEFAULT_CONFIG["auth"].get("secret_key"):
                 DEFAULT_CONFIG["auth"]["secret_key"] = secrets.token_hex(32)
             yaml.dump(DEFAULT_CONFIG, f, default_flow_style=False, allow_unicode=True)
         current_config = DEFAULT_CONFIG
     else:
-        with open(CONFIG_PATH, 'r') as f:
-            current_config = yaml.safe_load(f)
+        # 读取配置：UTF-8优先，回退GBK/GB18030
+        try:
+            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                current_config = yaml.safe_load(f)
+        except UnicodeDecodeError:
+            try:
+                with open(CONFIG_PATH, 'r', encoding='gbk') as f:
+                    current_config = yaml.safe_load(f)
+            except UnicodeDecodeError:
+                with open(CONFIG_PATH, 'r', encoding='gb18030') as f:
+                    current_config = yaml.safe_load(f)
         
         if not current_config:
             current_config = DEFAULT_CONFIG.copy()
@@ -181,7 +195,7 @@ def load_config():
                 need_save_after_load = True
         
         if need_save_after_load:
-            with open(CONFIG_PATH, 'w') as f:
+            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 yaml.dump(current_config, f, default_flow_style=False, allow_unicode=True)
 
     # 初始化认证模块的 session_serializer
@@ -195,7 +209,7 @@ def load_config():
         logger.warning("配置文件中未找到 secret_key，已生成临时的 secret_key。请检查配置文件。")
         # 尝试保存回文件
         try:
-            with open(CONFIG_PATH, 'w') as f:
+            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 yaml.dump(current_config, f, default_flow_style=False, allow_unicode=True)
             logger.info("已将生成的临时 secret_key 保存回配置文件。")
         except Exception as e:
@@ -325,7 +339,7 @@ async def home(request: Request, current_user: Optional[User] = Depends(get_curr
     # 确保传递最新的 config 到模板
     return templates.TemplateResponse(
         "index.html", 
-        {"request": request, "config": current_config, "current_user": current_user}
+        {"request": request, "config": current_config, "current_user": current_user, "version": get_version()}
     )
 
 # 运行时更新配置

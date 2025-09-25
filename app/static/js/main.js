@@ -11,6 +11,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // 绑定事件
     bindEvents();
     enhanceInputValidation();
+    // 初始化通知设置功能
+    initNotifySettings();
 });
 
 function bindEvents() {
@@ -97,7 +99,7 @@ function bindEvents() {
                     });
                 })
                 .then(response => response.json())
-                .then(data => {
+                .then(() => {
                     showToast('定时任务配置已保存', 'success');
                     if (resultSpan) {
                         resultSpan.textContent = '保存成功';
@@ -197,6 +199,35 @@ function bindEvents() {
     if (refreshLogsBtn) {
         refreshLogsBtn.addEventListener('click', function() { loadLogs(); });
     }
+    // 清空日志
+    const clearLogsBtn = document.getElementById('clear-logs');
+    if (clearLogsBtn) {
+        clearLogsBtn.addEventListener('click', function() {
+            showConfirmModal('确认操作', '确定要清空系统日志吗？此操作不可恢复。', function onConfirm() {
+                clearLogsBtn.disabled = true;
+                fetch('/api/logs/clear', { method: 'POST' })
+                    .then(res => res.json())
+                    .then(res => {
+                        if (res && res.success) {
+                            showToast(res.message || '日志已清空', 'success');
+                            const logsElement = document.getElementById('logs');
+                            logsElement.textContent = '';
+                            // 成功清空后自动刷新一次最新日志
+                            loadLogs();
+                        } else {
+                            showToast((res && res.message) || '清空日志失败', 'danger');
+                        }
+                    })
+                    .catch(err => {
+                        console.error('清空日志失败:', err);
+                        showToast('清空日志失败: ' + err.message, 'danger');
+                    })
+                    .finally(() => {
+                        clearLogsBtn.disabled = false;
+                    });
+            });
+        });
+    }
     // 批量添加Tracker
     const saveBatchTrackersBtn = document.getElementById('save-batch-trackers');
     if (saveBatchTrackersBtn) {
@@ -240,43 +271,98 @@ function bindEvents() {
     const btnClearAndUpdateHosts = document.getElementById('btn-clear-and-update-hosts');
     if (btnClearAndUpdateHosts) {
         btnClearAndUpdateHosts.addEventListener('click', function() {
-            if (!confirm('确定要清空系统hosts文件并重新生成吗？此操作不可恢复，建议先备份。')) return;
-            btnClearAndUpdateHosts.disabled = true;
-            showToast('正在清空hosts文件并更新，请稍候...', 'info', 10000);
-            fetch('/api/clear-and-update-hosts', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    showToast(data.message || '已清空并更新hosts', 'success', 10000);
+            showConfirmModal('确认操作', '确定要清理由本项目写入的 hosts 分区并重新生成吗？此操作不会清空您原有的 hosts 内容。建议先备份。', function onConfirm() {
+                btnClearAndUpdateHosts.disabled = true;
+                showToast('正在执行清理并更新hosts，请稍候...', 'info', 10000);
+                fetch('/api/clear-and-update-hosts', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        showToast(data.message || '已清理项目分区并更新hosts', 'success', 10000);
+                        loadCurrentHosts();
+                    })
+                    .catch(error => {
+                        showToast('清理并更新hosts失败: ' + error.message, 'danger', 10000);
+                    })
+                    .finally(() => {
+                        btnClearAndUpdateHosts.disabled = false;
+                    });
+            });
+        });
+    }
+    // Hosts编辑按钮
+    const btnEditHosts = document.getElementById('btn-edit-hosts');
+    if (btnEditHosts) {
+        btnEditHosts.addEventListener('click', function() {
+            showConfirmModal('确认操作', '此操作将修改系统Hosts文件，如果你不知道接下来该干什么请取消！', function onConfirm() {
+                // 打开编辑模态框并加载当前内容
+                fetch('/api/current-hosts')
+                    .then(res => res.json())
+                    .then(data => {
+                        const content = Array.isArray(data.hosts) ? data.hosts.join('') : (data.hosts || '');
+                        const textarea = document.getElementById('edit-hosts-textarea');
+                        textarea.value = content;
+                        const modal = new bootstrap.Modal(document.getElementById('editHostsModal'));
+                        modal.show();
+                    })
+                    .catch(err => {
+                        showToast('加载当前hosts失败: ' + err.message, 'danger');
+                    });
+            });
+        });
+    }
+    // 保存Hosts
+    const saveHostsBtn = document.getElementById('save-hosts-btn');
+    if (saveHostsBtn) {
+        saveHostsBtn.addEventListener('click', function() {
+            const textarea = document.getElementById('edit-hosts-textarea');
+            const content = textarea.value;
+            saveHostsBtn.disabled = true;
+            fetch('/api/save-hosts-content', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res && res.success) {
+                    showToast(res.message || 'Hosts已保存', 'success');
                     loadCurrentHosts();
-                })
-                .catch(error => {
-                    showToast('清空并更新hosts失败: ' + error.message, 'danger', 10000);
-                })
-                .finally(() => {
-                    btnClearAndUpdateHosts.disabled = false;
-                });
+                    const modalEl = document.getElementById('editHostsModal');
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) modal.hide();
+                } else {
+                    showToast((res && res.message) || '保存失败', 'danger');
+                }
+            })
+            .catch(err => {
+                showToast('保存失败: ' + err.message, 'danger');
+            })
+            .finally(() => {
+                saveHostsBtn.disabled = false;
+            });
         });
     }
     // 清空所有tracker按钮
     const btnClearAllTrackers = document.getElementById('btn-clear-all-trackers');
     if (btnClearAllTrackers) {
         btnClearAllTrackers.addEventListener('click', function() {
-            if (!confirm('确定要清空所有tracker吗？此操作不可恢复，建议先备份。')) return;
-            btnClearAllTrackers.disabled = true;
-            showToast('正在清空所有tracker，请稍候...', 'info', 10000);
-            fetch('/api/clear-all-trackers', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    showToast(data.message || '已清空所有tracker', 'success', 10000);
-                    loadTrackers();
-                    loadCurrentHosts();
-                })
-                .catch(error => {
-                    showToast('清空所有tracker失败: ' + error.message, 'danger', 10000);
-                })
-                .finally(() => {
-                    btnClearAllTrackers.disabled = false;
-                });
+            showConfirmModal('确认操作', '确定要清空所有tracker吗？此操作不可恢复，建议先备份。', function onConfirm() {
+                btnClearAllTrackers.disabled = true;
+                showToast('正在清空所有tracker，请稍候...', 'info', 10000);
+                fetch('/api/clear-all-trackers', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        showToast(data.message || '已清空所有tracker', 'success', 10000);
+                        loadTrackers();
+                        loadCurrentHosts();
+                    })
+                    .catch(error => {
+                        showToast('清空所有tracker失败: ' + error.message, 'danger', 10000);
+                    })
+                    .finally(() => {
+                        btnClearAllTrackers.disabled = false;
+                    });
+            });
         });
     }
     // ----- 自定义站点加速功能相关事件绑定 -----
@@ -774,6 +860,49 @@ function showToast(message, type = 'info', delay = 8000) {
     });
 }
 
+// 通用确认模态框
+function showConfirmModal(title, message, onConfirm) {
+    const titleEl = document.getElementById('confirmModalLabel');
+    const messageEl = document.getElementById('confirmMessage');
+    const okBtn = document.getElementById('confirmOkBtn');
+    const modalEl = document.getElementById('confirmModal');
+    if (!titleEl || !messageEl || !okBtn || !modalEl) {
+        if (confirm(message)) {
+            typeof onConfirm === 'function' && onConfirm();
+        }
+        return;
+    }
+    titleEl.textContent = title || '确认操作';
+    messageEl.textContent = message || '确定要执行此操作吗？';
+    const modal = new bootstrap.Modal(modalEl);
+
+    // 确保不会累积旧的确认回调（取消时旧回调不会被触发也应被移除）
+    if (window.__confirmOkHandler) {
+        try { okBtn.removeEventListener('click', window.__confirmOkHandler); } catch (e) {}
+        window.__confirmOkHandler = null;
+    }
+
+    const handler = () => {
+        modal.hide();
+        try { okBtn.removeEventListener('click', handler); } catch (e) {}
+        window.__confirmOkHandler = null;
+        typeof onConfirm === 'function' && onConfirm();
+    };
+    okBtn.addEventListener('click', handler);
+    window.__confirmOkHandler = handler;
+
+    // 关闭/取消时也清理handler，避免下一次残留触发
+    const cleanup = () => {
+        if (window.__confirmOkHandler) {
+            try { okBtn.removeEventListener('click', window.__confirmOkHandler); } catch (e) {}
+            window.__confirmOkHandler = null;
+        }
+        modalEl.removeEventListener('hidden.bs.modal', cleanup);
+    };
+    modalEl.addEventListener('hidden.bs.modal', cleanup);
+    modal.show();
+}
+
 // fetchWithTimeout工具函数，支持超时
 function fetchWithTimeout(resource, options = {}, timeout = 180000) {
     return Promise.race([
@@ -1219,3 +1348,661 @@ function deleteCustomAcceleratedSite(domain) {
     });
 }
 // ----- 自定义站点加速功能 END -----
+
+// ===== 通知设置功能 =====
+
+// 初始化通知设置功能
+function initNotifySettings() {
+    // 加载通知配置
+    loadNotifyConfig();
+    
+    // 绑定事件监听器
+    bindNotifyEvents();
+}
+
+// 加载通知配置
+async function loadNotifyConfig() {
+    try {
+        const response = await fetch('/api/notify/config');
+        const data = await response.json();
+        
+        if (data.success) {
+            const notifyConfig = data.notify || {};
+            
+            // 更新启用状态
+            const notifyEnabled = document.getElementById('notifyEnabled');
+            if (notifyEnabled) {
+                notifyEnabled.checked = notifyConfig.enable || false;
+            }
+            // 更新一言开关
+            const hitokotoEl = document.getElementById('notifyHitokoto');
+            if (hitokotoEl) {
+                // 后端默认 True，前端若未配置则置为 true
+                const hitokotoVal = (typeof notifyConfig.hitokoto === 'undefined') ? true : !!notifyConfig.hitokoto;
+                hitokotoEl.checked = hitokotoVal;
+            }
+            
+            // 加载通知渠道列表
+            loadNotifyChannels(notifyConfig.channels || {});
+        }
+    } catch (error) {
+        console.error('加载通知配置失败:', error);
+        showToast('加载通知配置失败', 'danger');
+    }
+}
+
+// 加载通知渠道列表
+function loadNotifyChannels(channels) {
+    const container = document.getElementById('notifyChannelsList');
+    if (!container) return;
+
+    if (!channels || Object.keys(channels).length === 0) {
+        container.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-bell-slash fs-1"></i><p class="mt-2">暂无通知渠道配置</p></div>';
+        return;
+    }
+
+    const rows = Object.entries(channels).map(([key, config]) => {
+        const type = (config.type || key);
+        const typeName = getChannelTypeName(type);
+        const enabled = !!config.enable;
+
+        // webhook 专属展示信息 + 每渠道一言标记
+        const method = (config.WEBHOOK_METHOD || '').toUpperCase();
+        const url = config.WEBHOOK_URL || '';
+        const contentType = config.WEBHOOK_CONTENT_TYPE || '';
+        const hasBody = !!(config.WEBHOOK_BODY && String(config.WEBHOOK_BODY).trim());
+        const hitokotoOn = (typeof config.HITOKOTO !== 'undefined') ? !!config.HITOKOTO : false;
+
+        const methodClass = 'bg-warning text-white';
+        const leftBadges = [
+            `<span class=\"badge bg-secondary ms-2 me-2\">${typeName}</span>`,
+            method ? `<span class=\"badge ${methodClass} me-2\">${method}</span>` : ''
+        ]
+        .concat(hitokotoOn ? [`<span class=\"badge bg-info text-white me-2\"><i class=\"bi bi-stars\"></i> 一言</span>`] : [])
+        .join('');
+
+        const urlLine = url ? `
+            <div class=\"small mb-1 text-muted d-flex align-items-start\">\n
+            <i class=\"bi bi-link-45deg me-1 flex-shrink-0 mt-1\"></i>\n
+            <span class=\"text-break\" style=\"word-break: break-all;\">${url}</span>\n
+            </div>` : '';
+
+        const metaLineParts = [];
+        if (contentType) {
+            metaLineParts.push(`<i class=\"bi bi-file-earmark-code me-1\"></i>${contentType}`);
+        }
+        if (hasBody) {
+            metaLineParts.push(`<i class=\"bi bi-file-earmark-text me-1\"></i>自定义Body`);
+        }
+        const metaLine = metaLineParts.length ? `<div class="small text-muted">${metaLineParts.join(' <span class=\"mx-1\">|</span> ')}</div>` : '';
+
+        return `
+        <div class=\"card mb-3\">\n
+        <div class=\"card-body py-3\">\n
+        <div class=\"d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between\">\n
+        <div class=\"flex-grow-1 pe-md-3 mb-2 mb-md-0\">\n
+        <div class=\"d-flex flex-wrap align-items-center mb-1\">\n
+        <span class=\"fw-semibold me-2\">${config.name || key}</span>\n
+        ${leftBadges}\n
+        <div class=\"form-check form-switch ms-auto ms-md-1 d-none d-md-block\">\n
+        <input class=\"form-check-input\" type=\"checkbox\" ${enabled ? 'checked' : ''} onchange=\"toggleChannel('${key}', this.checked)\">\n
+        </div>\n
+        </div>\n
+        ${urlLine}\n
+        ${metaLine}\n
+        </div>\n
+        <div class=\"d-flex flex-row align-items-center gap-1\">
+                        <button class="btn btn-sm btn-outline-secondary d-flex align-items-center text-nowrap" onclick="testSingleChannel('${key}')">
+                            <i class="bi bi-send me-1"></i> <span>测试</span>
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning d-flex align-items-center text-nowrap" onclick="editChannel('${key}')">
+                            <i class="bi bi-pencil-square me-1"></i> <span>编辑</span>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger d-flex align-items-center text-nowrap" onclick="deleteChannel('${key}')">
+                            <i class="bi bi-trash me-1"></i> <span>删除</span>
+                        </button>
+                        <div class=\"form-check form-switch d-block d-md-none ms-3\">\n
+                        <input class=\"form-check-input\" type=\"checkbox\" ${enabled ? 'checked' : ''} onchange=\"toggleChannel('${key}', this.checked)\">\n
+                        </div>
+                    </div>
+                </div>\n
+            </div>\n
+        </div>`;
+    });
+
+    container.innerHTML = rows.join('');
+}
+
+// 获取渠道类型名称
+function getChannelTypeName(type) {
+    const typeNames = {
+        'wecom_bot': '企业微信Bot',
+        'wecom_app': '企业微信App',
+        'telegram': 'Telegram',
+        'smtp': '邮件',
+        'bark': 'Bark',
+        'serverj': 'Server酱',
+        'chat': 'Synology Chat',
+        'feishu': '飞书机器人',
+        'dingding': '钉钉机器人',
+        'igot': 'iGot 聚合推送',
+        'webhook': '自定义Webhook'
+    };
+    return typeNames[type] || type;
+}
+
+// 绑定通知相关事件
+function bindNotifyEvents() {
+    // 通知启用开关
+    const notifyEnabled = document.getElementById('notifyEnabled');
+    if (notifyEnabled) {
+        notifyEnabled.addEventListener('change', updateNotifyEnabled);
+    }
+    // 移除页面级一言开关，改由渠道内配置
+    
+    // 添加通知渠道按钮（重置为新增模式）
+    const addNotifyBtn = document.getElementById('add-notify-channel-btn');
+    if (addNotifyBtn) {
+        addNotifyBtn.addEventListener('click', openAddNotifyChannelModal);
+    }
+
+    // 渠道类型选择器
+    const channelType = document.getElementById('channel-type');
+    if (channelType) {
+        channelType.addEventListener('change', showChannelConfig);
+    }
+    
+    // 保存渠道按钮
+    const saveChannelBtn = document.getElementById('save-notify-channel');
+    if (saveChannelBtn) {
+        saveChannelBtn.addEventListener('click', saveNotifyChannel);
+    }
+    
+    // 全局测试按钮已移除，改为每个渠道卡片上的“测试”按钮
+}
+
+// 更新通知启用状态
+async function updateNotifyEnabled() {
+    const enabled = document.getElementById('notifyEnabled').checked;
+    
+    try {
+        // 先获取现有配置，避免覆盖其它字段
+        const current = await fetch('/api/notify/config').then(r => r.json());
+        const notifyCfg = (current && current.success && current.notify) ? current.notify : {};
+        const merged = {
+            ...notifyCfg,
+            enable: enabled,
+        };
+        const response = await fetch('/api/notify/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ notify: merged })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            showToast(`通知功能已${enabled ? '启用' : '禁用'}`, 'success');
+        } else {
+            throw new Error(data.message || '更新失败');
+        }
+    } catch (error) {
+        console.error('更新通知状态失败:', error);
+        showToast('更新失败: ' + error.message, 'danger');
+        // 恢复开关状态
+        document.getElementById('notifyEnabled').checked = !enabled;
+    }
+}
+
+// 显示渠道配置
+function showChannelConfig() {
+    const type = document.getElementById('channel-type').value;
+    const configs = document.querySelectorAll('.channel-config');
+    
+    // 隐藏所有配置
+    configs.forEach(config => {
+        config.style.display = 'none';
+    });
+    
+    // 显示对应配置
+    if (type) {
+        // 处理特殊的ID映射
+        let configId = type + '-config';
+        if (type === 'wecom_bot') {
+            configId = 'wecom-config';
+        }
+        
+        const config = document.getElementById(configId);
+        if (config) {
+            config.style.display = 'block';
+        }
+    }
+}
+
+// 保存通知渠道
+async function saveNotifyChannel() {
+    const form = document.getElementById('notify-channel-form');
+    const channelData = {
+        name: document.getElementById('channel-name').value,
+        type: document.getElementById('channel-type').value,
+        enable: document.getElementById('channel-enable').checked,
+    };
+    
+    // 根据类型添加特定配置
+    const type = channelData.type;
+    switch (type) {
+        case 'igot':
+            channelData.IGOT_PUSH_KEY = document.getElementById('igot-key').value;
+            break;
+        case 'dingding':
+            channelData.DD_BOT_TOKEN = document.getElementById('dd-bot-token').value;
+            channelData.DD_BOT_SECRET = document.getElementById('dd-bot-secret').value;
+            break;
+        case 'feishu':
+            channelData.FSKEY = document.getElementById('feishu-key').value;
+            break;
+        case 'chat':
+            channelData.CHAT_URL = document.getElementById('chat-url').value;
+            channelData.CHAT_TOKEN = document.getElementById('chat-token').value;
+            break;
+        case 'serverj':
+            channelData.PUSH_KEY = document.getElementById('serverj-push-key').value;
+            break;
+        case 'wecom_app': {
+            // 组装企业微信App所需的 QYWX_AM: corpid,corpsecret,touser,agentid[,media_id]
+            const corpid = document.getElementById('weapp-corpid') ? document.getElementById('weapp-corpid').value.trim() : '';
+            const corpsecret = document.getElementById('weapp-corpsecret') ? document.getElementById('weapp-corpsecret').value.trim() : '';
+            const touser = document.getElementById('weapp-touser') ? document.getElementById('weapp-touser').value.trim() : '';
+            const agentid = document.getElementById('weapp-agentid') ? document.getElementById('weapp-agentid').value.trim() : '';
+            const media = document.getElementById('weapp-mediaid') ? document.getElementById('weapp-mediaid').value.trim() : '';
+            const parts = [corpid, corpsecret, touser, agentid].filter(Boolean);
+            if (media) parts.push(media);
+            channelData.QYWX_AM = parts.join(',');
+            break;
+        }
+        case 'wecom_bot':
+            channelData.QYWX_KEY = document.getElementById('wecom-key').value;
+            break;
+        case 'telegram':
+            channelData.TG_BOT_TOKEN = document.getElementById('tg-bot-token').value;
+            channelData.TG_USER_ID = document.getElementById('tg-user-id').value;
+            channelData.TG_API_HOST = document.getElementById('tg-api-host') ? document.getElementById('tg-api-host').value : '';
+            channelData.TG_PROXY_HOST = document.getElementById('tg-proxy-host') ? document.getElementById('tg-proxy-host').value : '';
+            channelData.TG_PROXY_PORT = document.getElementById('tg-proxy-port') ? document.getElementById('tg-proxy-port').value : '';
+            channelData.TG_PROXY_AUTH = document.getElementById('tg-proxy-auth') ? document.getElementById('tg-proxy-auth').value : '';
+            break;
+        case 'smtp':
+            channelData.SMTP_SERVER = document.getElementById('smtp-server').value;
+            channelData.SMTP_EMAIL = document.getElementById('smtp-email').value;
+            channelData.SMTP_PASSWORD = document.getElementById('smtp-password').value;
+            channelData.SMTP_NAME = document.getElementById('smtp-name') ? document.getElementById('smtp-name').value : '';
+            channelData.SMTP_SSL = document.getElementById('smtp-ssl') && document.getElementById('smtp-ssl').checked ? 'true' : 'false';
+            // 如填写端口且 server 未包含端口，组合为 host:port（不覆盖用户显式写好的 host:port）
+            (function combinePort() {
+                const port = document.getElementById('smtp-port') ? document.getElementById('smtp-port').value.trim() : '';
+                if (!port) return;
+                const server = channelData.SMTP_SERVER || '';
+                if (server && !server.includes(':')) {
+                    channelData.SMTP_SERVER = server + ':' + port;
+                }
+            })();
+            break;
+        case 'bark':
+            channelData.BARK_PUSH = document.getElementById('bark-url').value;
+            channelData.BARK_GROUP = document.getElementById('bark-group') ? document.getElementById('bark-group').value : '';
+            channelData.BARK_SOUND = document.getElementById('bark-sound') ? document.getElementById('bark-sound').value : '';
+            channelData.BARK_ICON = document.getElementById('bark-icon') ? document.getElementById('bark-icon').value : '';
+            channelData.BARK_LEVEL = document.getElementById('bark-level') ? document.getElementById('bark-level').value : '';
+            channelData.BARK_URL = document.getElementById('bark-jump-url') ? document.getElementById('bark-jump-url').value : '';
+            channelData.BARK_ARCHIVE = document.getElementById('bark-archive') && document.getElementById('bark-archive').checked ? '1' : '';
+            break;
+        case 'webhook':
+            channelData.WEBHOOK_URL = document.getElementById('webhook-url').value;
+            channelData.WEBHOOK_METHOD = document.getElementById('webhook-method').value;
+            channelData.WEBHOOK_CONTENT_TYPE = document.getElementById('webhook-content-type').value;
+            channelData.WEBHOOK_HEADERS = document.getElementById('webhook-headers').value;
+            channelData.WEBHOOK_BODY = document.getElementById('webhook-body').value;
+            break;
+    }
+    // 每渠道一言开关（默认 false）
+    const perHitokoto = document.getElementById('channel-hitokoto');
+    if (perHitokoto) {
+        channelData.HITOKOTO = !!perHitokoto.checked;
+    }
+    
+    try {
+        // 先读取现有配置并合并，避免覆盖其它渠道
+        const current = await fetch('/api/notify/config').then(r => r.json());
+        const notifyCfg = (current && current.success && current.notify) ? current.notify : {};
+        const enabledGlobal = document.getElementById('notifyEnabled').checked;
+        const channels = { ...(notifyCfg.channels || {}) };
+        const editingKey = form.dataset.editingKey || null;
+        if (editingKey && editingKey !== channelData.name && channels[editingKey]) {
+            // 支持重命名：删除旧key
+            delete channels[editingKey];
+        }
+        channels[channelData.name] = channelData;
+        const merged = {
+            ...notifyCfg,
+            enable: enabledGlobal,
+            channels: channels
+        };
+        const response = await fetch('/api/notify/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ notify: merged })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            showToast('通知渠道已保存', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('notifyChannelModal')).hide();
+            form.reset();
+            // 清理编辑状态
+            delete form.dataset.editingKey;
+            loadNotifyConfig();
+        } else {
+            throw new Error(data.message || '保存失败');
+        }
+    } catch (error) {
+        console.error('保存通知渠道失败:', error);
+        showToast('保存失败: ' + error.message, 'danger');
+    }
+}
+
+// 切换渠道启用状态
+async function toggleChannel(channelKey, enabled) {
+    try {
+        // 获取并更新指定渠道的启用状态
+        const current = await fetch('/api/notify/config').then(r => r.json());
+        const notifyCfg = (current && current.success && current.notify) ? current.notify : {};
+        const channels = { ...(notifyCfg.channels || {}) };
+        if (!channels[channelKey]) {
+            throw new Error('未找到该通知渠道');
+        }
+        channels[channelKey] = { ...channels[channelKey], enable: enabled };
+        const merged = { ...notifyCfg, channels };
+        const res = await fetch('/api/notify/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notify: merged })
+        }).then(r => r.json());
+        if (!res || res.success !== true) {
+            throw new Error((res && res.message) || '保存失败');
+        }
+        showToast(`渠道已${enabled ? '启用' : '禁用'}`, 'success');
+    } catch (error) {
+        console.error('切换渠道状态失败:', error);
+        showToast('操作失败: ' + error.message, 'danger');
+    }
+}
+
+// 编辑渠道
+async function editChannel(channelKey) {
+    try {
+        const current = await fetch('/api/notify/config').then(r => r.json());
+        const notifyCfg = (current && current.success && current.notify) ? current.notify : {};
+        const channels = notifyCfg.channels || {};
+        const ch = channels[channelKey];
+        if (!ch) {
+            showToast('未找到该通知渠道', 'danger');
+            return;
+        }
+        const form = document.getElementById('notify-channel-form');
+        if (!form) return;
+        // 标记编辑key
+        form.dataset.editingKey = channelKey;
+        // 基础字段
+        const nameInput = document.getElementById('channel-name');
+        const typeSelect = document.getElementById('channel-type');
+        const enableSwitch = document.getElementById('channel-enable');
+        if (nameInput) nameInput.value = ch.name || channelKey;
+        if (typeSelect) typeSelect.value = ch.type || 'webhook';
+        if (enableSwitch) enableSwitch.checked = !!ch.enable;
+
+        // 显示对应配置区域
+        showChannelConfig();
+
+        // 根据类型填充专有字段
+        const type = (ch.type || 'webhook');
+        switch (type) {
+        case 'wecom_app': {
+            // 将UI字段拼装为后端期望的 QYWX_AM 格式（corpid,corpsecret,touser,agentid[,media_id])
+            const corpid = document.getElementById('weapp-corpid') ? document.getElementById('weapp-corpid').value.trim() : '';
+            const corpsecret = document.getElementById('weapp-corpsecret') ? document.getElementById('weapp-corpsecret').value.trim() : '';
+            const touser = document.getElementById('weapp-touser') ? document.getElementById('weapp-touser').value.trim() : '';
+            const agentid = document.getElementById('weapp-agentid') ? document.getElementById('weapp-agentid').value.trim() : '';
+            const media = document.getElementById('weapp-mediaid') ? document.getElementById('weapp-mediaid').value.trim() : '';
+            const parts = [corpid, corpsecret, touser, agentid].filter(Boolean);
+            if (media) parts.push(media);
+            channelData.QYWX_AM = parts.join(',');
+            break;
+        }
+            case 'wecom_app': {
+                const q = ch.QYWX_AM || '';
+                const arr = q.split(',');
+                const c1 = document.getElementById('weapp-corpid');
+                const c2 = document.getElementById('weapp-corpsecret');
+                const c3 = document.getElementById('weapp-touser');
+                const c4 = document.getElementById('weapp-agentid');
+                const c5 = document.getElementById('weapp-mediaid');
+                if (c1) c1.value = arr[0] || '';
+                if (c2) c2.value = arr[1] || '';
+                if (c3) c3.value = arr[2] || '';
+                if (c4) c4.value = arr[3] || '';
+                if (c5) c5.value = arr[4] || '';
+                break;
+            }
+            case 'igot': {
+                const k = document.getElementById('igot-key');
+                if (k) k.value = ch.IGOT_PUSH_KEY || '';
+                break;
+            }
+            case 'dingding': {
+                const t = document.getElementById('dd-bot-token');
+                const s = document.getElementById('dd-bot-secret');
+                if (t) t.value = ch.DD_BOT_TOKEN || '';
+                if (s) s.value = ch.DD_BOT_SECRET || '';
+                break;
+            }
+            case 'feishu': {
+                const f = document.getElementById('feishu-key');
+                if (f) f.value = ch.FSKEY || '';
+                break;
+            }
+            case 'chat': {
+                const u = document.getElementById('chat-url');
+                const t = document.getElementById('chat-token');
+                if (u) u.value = ch.CHAT_URL || '';
+                if (t) t.value = ch.CHAT_TOKEN || '';
+                break;
+            }
+            case 'serverj': {
+                const s = document.getElementById('serverj-push-key');
+                if (s) s.value = ch.PUSH_KEY || '';
+                break;
+            }
+            case 'wecom_bot': {
+                const el = document.getElementById('wecom-key');
+                if (el) el.value = ch.QYWX_KEY || '';
+                break;
+            }
+            case 'telegram': {
+                const t1 = document.getElementById('tg-bot-token');
+                const t2 = document.getElementById('tg-user-id');
+                const t3 = document.getElementById('tg-api-host');
+                const t4 = document.getElementById('tg-proxy-host');
+                const t5 = document.getElementById('tg-proxy-port');
+                const t6 = document.getElementById('tg-proxy-auth');
+                if (t1) t1.value = ch.TG_BOT_TOKEN || '';
+                if (t2) t2.value = ch.TG_USER_ID || '';
+                if (t3) t3.value = ch.TG_API_HOST || '';
+                if (t4) t4.value = ch.TG_PROXY_HOST || '';
+                if (t5) t5.value = ch.TG_PROXY_PORT || '';
+                if (t6) t6.value = ch.TG_PROXY_AUTH || '';
+                break;
+            }
+            case 'smtp': {
+                const s1 = document.getElementById('smtp-server');
+                const s2 = document.getElementById('smtp-port');
+                const s3 = document.getElementById('smtp-email');
+                const s4 = document.getElementById('smtp-password');
+                const s5 = document.getElementById('smtp-name');
+                const s6 = document.getElementById('smtp-ssl');
+                const serverVal = ch.SMTP_SERVER || '';
+                if (s1) s1.value = serverVal;
+                if (s2) {
+                    const idx = serverVal.lastIndexOf(':');
+                    s2.value = idx > -1 ? serverVal.slice(idx + 1) : '';
+                }
+                if (s3) s3.value = ch.SMTP_EMAIL || '';
+                if (s4) s4.value = ch.SMTP_PASSWORD || '';
+                if (s5) s5.value = ch.SMTP_NAME || '';
+                if (s6) s6.checked = String(ch.SMTP_SSL || 'false') === 'true';
+                break;
+            }
+            case 'bark': {
+                const b0 = document.getElementById('bark-url');
+                const b1 = document.getElementById('bark-group');
+                const b2 = document.getElementById('bark-sound');
+                const b3 = document.getElementById('bark-icon');
+                const b4 = document.getElementById('bark-level');
+                const b5 = document.getElementById('bark-jump-url');
+                const b6 = document.getElementById('bark-archive');
+                if (b0) b0.value = ch.BARK_PUSH || '';
+                if (b1) b1.value = ch.BARK_GROUP || '';
+                if (b2) b2.value = ch.BARK_SOUND || '';
+                if (b3) b3.value = ch.BARK_ICON || '';
+                if (b4) b4.value = ch.BARK_LEVEL || '';
+                if (b5) b5.value = ch.BARK_URL || '';
+                if (b6) b6.checked = !!(ch.BARK_ARCHIVE && String(ch.BARK_ARCHIVE) !== '0' && String(ch.BARK_ARCHIVE).toLowerCase() !== 'false');
+                break;
+            }
+            
+            case 'webhook':
+            default: {
+                const u = document.getElementById('webhook-url');
+                const m = document.getElementById('webhook-method');
+                const ct = document.getElementById('webhook-content-type');
+                const hd = document.getElementById('webhook-headers');
+                const bd = document.getElementById('webhook-body');
+                if (u) u.value = ch.WEBHOOK_URL || '';
+                if (m) m.value = ch.WEBHOOK_METHOD || 'POST';
+                if (ct) ct.value = ch.WEBHOOK_CONTENT_TYPE || 'application/json';
+                if (hd) hd.value = ch.WEBHOOK_HEADERS || '';
+                if (bd) bd.value = ch.WEBHOOK_BODY || '';
+                break;
+            }
+        }
+        // 预填每渠道一言
+        const hitokotoEl = document.getElementById('channel-hitokoto');
+        if (hitokotoEl) hitokotoEl.checked = !!ch.HITOKOTO;
+
+        // 设置模态框标题/按钮
+        const titleEl = document.getElementById('notifyChannelModalLabel');
+        const saveBtn = document.getElementById('save-notify-channel');
+        if (titleEl) titleEl.textContent = '编辑通知渠道';
+        if (saveBtn) saveBtn.textContent = '更新';
+
+        // 打开模态框
+        const modal = new bootstrap.Modal(document.getElementById('notifyChannelModal'));
+        modal.show();
+    } catch (e) {
+        console.error('加载渠道配置失败:', e);
+        showToast('加载渠道配置失败: ' + e.message, 'danger');
+    }
+}
+
+// 新增渠道：打开模态框并重置表单
+function openAddNotifyChannelModal() {
+    const form = document.getElementById('notify-channel-form');
+    if (form) {
+        form.reset();
+        delete form.dataset.editingKey;
+    }
+    const titleEl = document.getElementById('notifyChannelModalLabel');
+    const saveBtn = document.getElementById('save-notify-channel');
+    if (titleEl) titleEl.textContent = '添加通知渠道';
+    if (saveBtn) saveBtn.textContent = '保存';
+    const typeSelect = document.getElementById('channel-type');
+    if (typeSelect) {
+        // 重置并隐藏所有专有配置
+        typeSelect.value = '';
+        document.querySelectorAll('.channel-config').forEach(el => el.style.display = 'none');
+    }
+}
+
+// 删除渠道
+async function deleteChannel(channelKey) {
+    showConfirmModal('确认删除', '确定要删除这个通知渠道吗？', function onConfirm() {
+        performDeleteChannel(channelKey);
+    });
+}
+
+// 执行删除渠道操作
+async function performDeleteChannel(channelKey) {
+    try {
+        // 获取现有配置并删除指定渠道
+        const current = await fetch('/api/notify/config').then(r => r.json());
+        const notifyCfg = (current && current.success && current.notify) ? current.notify : {};
+        const channels = { ...(notifyCfg.channels || {}) };
+        if (!channels[channelKey]) {
+            throw new Error('未找到该通知渠道');
+        }
+        delete channels[channelKey];
+        const merged = { ...notifyCfg, channels };
+        const res = await fetch('/api/notify/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notify: merged })
+        }).then(r => r.json());
+        if (!res || res.success !== true) {
+            throw new Error((res && res.message) || '删除失败');
+        }
+        showToast('渠道已删除', 'success');
+        loadNotifyConfig();
+    } catch (error) {
+        console.error('删除渠道失败:', error);
+        showToast('删除失败: ' + error.message, 'danger');
+    }
+}
+
+// 单渠道测试
+async function testSingleChannel(channelKey) {
+    try {
+        const current = await fetch('/api/notify/config').then(r => r.json());
+        const notifyCfg = (current && current.success && current.notify) ? current.notify : {};
+        const channels = notifyCfg.channels || {};
+        const ch = channels[channelKey];
+        if (!ch) {
+            showToast('渠道不存在', 'warning');
+            return;
+        }
+        if (!ch.enable) {
+            showToast('该渠道未启用', 'warning');
+            return;
+        }
+        const payload = { title: 'PT-Accelerator通知测试', content: '这是一条测试消息，用于验证通知功能是否正常工作。', channels: {} };
+        payload.channels[channelKey] = ch;
+
+        const resp = await fetch('/api/notify/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await resp.json();
+        if (data.success) {
+            showToast('测试通知已发送', 'success');
+        } else {
+            throw new Error(data.message || '发送失败');
+        }
+    } catch (error) {
+        console.error('测试通知失败:', error);
+        showToast('测试失败: ' + error.message, 'danger');
+    }
+}
+
+// ===== 通知设置功能 END =====

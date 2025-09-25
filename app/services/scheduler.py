@@ -84,12 +84,31 @@ class SchedulerService:
                     # 更新任务状态
                     self.task_status = {"status": "running", "message": "正在执行定时IP优选任务"}
                     try:
-                        self.hosts_manager.run_cfst_and_update_hosts()
-                        self.task_status = {"status": "done", "message": "定时IP优选任务完成"}
+                        ok = self.hosts_manager.run_cfst_and_update_hosts()
+                        status = self.hosts_manager.get_task_status() if hasattr(self.hosts_manager, 'get_task_status') else {}
+                        msg = status.get('message') if isinstance(status, dict) else ("定时IP优选任务完成" if ok else "定时IP优选任务失败")
+                        self.task_status = {"status": "done", "message": msg}
                         logger.info("组合任务完成：优选IP + 更新hosts源（严格串行）")
+                        
+                        # 发送定时任务完成通知
+                        try:
+                            from app.api.routes import _send_task_notify
+                            logger.info(f"[定时任务通知] IP优选与Hosts更新 -> {msg}")
+                            _send_task_notify("IP优选与Hosts更新", msg)
+                        except Exception as notify_e:
+                            logger.error(f"发送定时任务通知失败: {str(notify_e)}")
                     except Exception as e:
-                        self.task_status = {"status": "done", "message": f"定时任务失败: {str(e)}"}
+                        error_msg = f"定时任务失败: {str(e)}"
+                        self.task_status = {"status": "done", "message": error_msg}
                         logger.error(f"执行定时任务失败: {str(e)}")
+                        
+                        # 发送定时任务失败通知
+                        try:
+                            from app.api.routes import _send_task_notify
+                            logger.info(f"[定时任务通知] IP优选与Hosts更新 -> {error_msg}")
+                            _send_task_notify("IP优选与Hosts更新", error_msg)
+                        except Exception as notify_e:
+                            logger.error(f"发送定时任务失败通知失败: {str(notify_e)}")
                 
                 self.scheduler.add_job(
                     combined_task,
