@@ -75,6 +75,8 @@ pip install -r requirements.txt
 
 # 启动服务
 bash start.sh
+# 自定义端口启动
+APP_PORT=8080 bash start.sh
 # 或
 python -m uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-23333}
 ```
