@@ -33,6 +33,7 @@ docker run -d \
   -v /path/to/config:/app/config \
   -v /path/to/logs:/app/logs \
   -e TZ=Asia/Shanghai \
+  -e APP_PORT=23333 \
   eternalcurse/pt-accelerator:latest
 ```
 
