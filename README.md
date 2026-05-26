@@ -46,12 +46,15 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      - TZ=Asia/Shanghai
+      TZ: "${TZ:-Asia/Shanghai}"
+      APP_PORT: "${APP_PORT:-23333}"
     volumes:
       - /etc/hosts:/etc/hosts
       - ./config:/app/config
       - ./logs:/app/logs
 ```
+
+如需自定义时区或端口，可复制 `.env.example` 为 `.env` 后修改对应变量。
 
 创建上述`docker-compose.yml`文件后，在同一目录下运行：
 
